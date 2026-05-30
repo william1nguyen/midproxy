@@ -1,0 +1,11 @@
+server:
+  port: 8000
+
+solver:
+  nodes:
+    - http://localhost:3000
+  timeout: 90s
+
+proxy:
+  urls:
+    - http://username:password@host:port
