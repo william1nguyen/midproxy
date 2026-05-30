@@ -1,0 +1,68 @@
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# Environment
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# Node.js
+# =========================
+node_modules/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+dist/
+build/
+coverage/
+
+.npm/
+.pnpm-store/
+
+# =========================
+# Go
+# =========================
+bin/
+
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+*.test
+coverage.out
+coverage.html
+
+configs/config.yaml
+
+# Air hot reload
+tmp/
+
+# =========================
+# Cache
+# =========================
+.cache/
