@@ -23,14 +23,22 @@ type SolverConfig struct {
 }
 
 type ProxyConfig struct {
-	URLs []string `yaml:"urls"`
+	URLs        []string          `yaml:"urls"`
+	HealthCheck HealthCheckConfig `yaml:"health_check"`
+}
+
+type HealthCheckConfig struct {
+	Interval time.Duration `yaml:"interval"`
+	Timeout  time.Duration `yaml:"timeout"`
 }
 
 func Load(configYamlFile string) (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{Port: 8000},
 		Solver: SolverConfig{Timeout: 90 * time.Second},
-		Proxy:  ProxyConfig{},
+		Proxy: ProxyConfig{
+			HealthCheck: HealthCheckConfig{Interval: 30 * time.Second, Timeout: 10 * time.Second},
+		},
 	}
 
 	data, err := os.ReadFile(configYamlFile)
