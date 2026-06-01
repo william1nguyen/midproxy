@@ -14,7 +14,12 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int `yaml:"port"`
+	Port    int           `yaml:"port"`
+	Fetcher FetcherConfig `yaml:"fetcher"`
+}
+
+type FetcherConfig struct {
+	Timeout time.Duration `yaml:"timeout"`
 }
 
 type SolverConfig struct {
@@ -34,7 +39,12 @@ type HealthCheckConfig struct {
 
 func Load(configYamlFile string) (*Config, error) {
 	cfg := &Config{
-		Server: ServerConfig{Port: 8000},
+		Server: ServerConfig{
+			Port: 8000,
+			Fetcher: FetcherConfig{
+				Timeout: 30 * time.Second,
+			},
+		},
 		Solver: SolverConfig{Timeout: 90 * time.Second},
 		Proxy: ProxyConfig{
 			HealthCheck: HealthCheckConfig{Interval: 30 * time.Second, Timeout: 10 * time.Second},

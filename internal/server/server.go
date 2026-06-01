@@ -18,7 +18,7 @@ type Server struct {
 }
 
 func New(config *config.Config) *Server {
-	router := setupRouter()
+	router := setupRouter(config)
 
 	return &Server{
 		httpServer: &http.Server{

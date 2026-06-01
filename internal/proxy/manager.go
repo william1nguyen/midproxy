@@ -3,6 +3,8 @@ package proxy
 import (
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -11,7 +13,6 @@ const (
 )
 
 type Proxy struct {
-	ID            string
 	URL           string
 	cooldownUntil time.Time
 }
@@ -27,58 +28,61 @@ type Manager struct {
 	currentIndex     int
 }
 
-func NewManager() *Manager {
+func NewManager(proxyURLs []string) *Manager {
+	proxies := make([]*Proxy, 0, len(proxyURLs))
+	for _, proxyURL := range proxyURLs {
+		proxies = append(proxies, &Proxy{URL: proxyURL})
+	}
+
 	return &Manager{
+		proxies:          proxies,
 		consecutiveFails: make(map[string]int),
 	}
 }
 
-func (manager *Manager) Add(id, url string) {
-	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
-	manager.proxies = append(manager.proxies, &Proxy{ID: id, URL: url})
-}
-
 func (manager *Manager) Pick() *Proxy {
-	manager.mutex.RLock()
-	defer manager.mutex.RUnlock()
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
 
-	for range manager.proxies {
-		manager.currentIndex = (manager.currentIndex + 1) % len(manager.proxies)
-		proxy := manager.proxies[manager.currentIndex]
-		if proxy.isAvailable() {
-			return proxy
+	if len(manager.proxies) > 0 {
+		for range manager.proxies {
+			manager.currentIndex = (manager.currentIndex + 1) % len(manager.proxies)
+			proxy := manager.proxies[manager.currentIndex]
+			if proxy.isAvailable() {
+				return proxy
+			}
 		}
 	}
 
+	log.Warn().Msg("no available proxy")
 	return nil
 }
 
-func (manager *Manager) getProxy(proxyId string) *Proxy {
+func (manager *Manager) getProxy(proxyURL string) *Proxy {
 	for _, proxy := range manager.proxies {
-		if proxy.ID == proxyId {
+		if proxy.URL == proxyURL {
 			return proxy
 		}
 	}
 	return nil
 }
 
-func (manager *Manager) RecordSuccess(proxyId string) {
+func (manager *Manager) RecordSuccess(proxyURL string) {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
-	manager.consecutiveFails[proxyId] = 0
+	manager.consecutiveFails[proxyURL] = 0
 }
 
-func (manager *Manager) RecordFailure(proxyId string) {
+func (manager *Manager) RecordFailure(proxyURL string) {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
 
-	manager.consecutiveFails[proxyId]++
-	if manager.consecutiveFails[proxyId] >= consecutiveFailThreshold {
-		proxy := manager.getProxy(proxyId)
+	manager.consecutiveFails[proxyURL]++
+	if manager.consecutiveFails[proxyURL] >= consecutiveFailThreshold {
+		proxy := manager.getProxy(proxyURL)
 		if proxy != nil {
 			proxy.cooldownUntil = time.Now().Add(cooldownDuration)
-			manager.consecutiveFails[proxyId] = 0
+			manager.consecutiveFails[proxy.URL] = 0
 		}
 	}
 }

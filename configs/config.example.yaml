@@ -1,5 +1,7 @@
 server:
   port: 8000
+  fetcher:
+    timeout: 30s
 
 solver:
   nodes:
