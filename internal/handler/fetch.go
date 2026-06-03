@@ -17,7 +17,7 @@ type FetchResponse struct {
 	URL        string `json:"url"`
 }
 
-func NewFetchHandler(fetcher *fetcher.Fetcher) gin.HandlerFunc {
+func NewFetchHandler(f *fetcher.Fetcher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req FetchRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -25,7 +25,7 @@ func NewFetchHandler(fetcher *fetcher.Fetcher) gin.HandlerFunc {
 			return
 		}
 
-		html, statusCode, err := fetcher.Fetch(c.Request.Context(), req.URL, nil, nil)
+		html, statusCode, err := f.Fetch(c.Request.Context(), req.URL, nil, nil)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "fetch_failed", "message": err.Error()})
 			return

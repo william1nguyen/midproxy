@@ -19,11 +19,11 @@ func TestIsCloudflareChallenge(t *testing.T) {
 		{"cf_chl token", 200, "<html>_cf_chl_opt</html>", true},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := fetcher.IsCloudflareChallenge(test.code, test.body)
-			if got != test.expect {
-				t.Errorf("IsCloudflareChallenge(%d, %q) = %v, want %v", test.code, test.body, got, test.expect)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := fetcher.IsCloudflareChallenge(tt.code, tt.body)
+			if got != tt.expect {
+				t.Errorf("IsCloudflareChallenge(%d, %q) = %v, want %v", tt.code, tt.body, got, tt.expect)
 			}
 		})
 	}

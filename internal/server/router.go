@@ -8,12 +8,12 @@ import (
 	"github.com/william1nguyen/midproxy/internal/proxy"
 )
 
-func setupRouter(config *config.Config) *gin.Engine {
-	proxyManager := proxy.NewManager(config.Proxy.URLs)
-	f := fetcher.New(config.Server.Fetcher.Timeout, proxyManager)
+func setupRouter(cfg *config.Config) *gin.Engine {
+	proxyManager := proxy.NewManager(cfg.Proxy.URLs)
+	f := fetcher.New(cfg.Server.Fetcher.Timeout, proxyManager)
 
-	router := gin.Default()
-	router.GET("/health", handler.HandlerHealth)
-	router.POST("/fetch", handler.NewFetchHandler(f))
-	return router
+	r := gin.Default()
+	r.GET("/health", handler.HandlerHealth)
+	r.POST("/fetch", handler.NewFetchHandler(f))
+	return r
 }

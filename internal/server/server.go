@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,12 +18,12 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func New(config *config.Config) *Server {
-	router := setupRouter(config)
+func New(cfg *config.Config) *Server {
+	router := setupRouter(cfg)
 
 	return &Server{
 		httpServer: &http.Server{
-			Addr:         fmt.Sprintf(":%d", config.Server.Port),
+			Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
 			Handler:      router,
 			ReadTimeout:  120 * time.Second,
 			WriteTimeout: 120 * time.Second,
@@ -30,24 +31,26 @@ func New(config *config.Config) *Server {
 	}
 }
 
-func (server *Server) Run() {
+func (s *Server) Run() {
 	go func() {
-		log.Info().Str("addr", server.httpServer.Addr).Msg("server starting...")
-		if err := server.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Info().Str("addr", s.httpServer.Addr).Msg("server starting...")
+		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal().Err(err).Msg("server error")
 		}
 	}()
 
-	server.waitForShutdown()
+	s.waitForShutdown()
 }
 
-func (server *Server) waitForShutdown() {
+func (s *Server) waitForShutdown() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	server.httpServer.Shutdown(ctx)
+	if err := s.httpServer.Shutdown(ctx); err != nil {
+		log.Error().Err(err).Msg("server shutdown error")
+	}
 	log.Info().Msg("server stopped")
 }

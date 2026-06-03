@@ -17,21 +17,21 @@ type Proxy struct {
 	cooldownUntil time.Time
 }
 
-func (proxy *Proxy) isAvailable() bool {
-	return time.Now().After(proxy.cooldownUntil)
+func (p *Proxy) isAvailable() bool {
+	return time.Now().After(p.cooldownUntil)
 }
 
 type Manager struct {
-	mutex            sync.RWMutex
+	mutex            sync.Mutex
 	proxies          []*Proxy
 	consecutiveFails map[string]int
-	currentIndex     int
+	index            int
 }
 
 func NewManager(proxyURLs []string) *Manager {
 	proxies := make([]*Proxy, 0, len(proxyURLs))
-	for _, proxyURL := range proxyURLs {
-		proxies = append(proxies, &Proxy{URL: proxyURL})
+	for _, u := range proxyURLs {
+		proxies = append(proxies, &Proxy{URL: u})
 	}
 
 	return &Manager{
@@ -40,17 +40,15 @@ func NewManager(proxyURLs []string) *Manager {
 	}
 }
 
-func (manager *Manager) Pick() *Proxy {
-	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
+func (m *Manager) Pick() *Proxy {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 
-	if len(manager.proxies) > 0 {
-		for range manager.proxies {
-			manager.currentIndex = (manager.currentIndex + 1) % len(manager.proxies)
-			proxy := manager.proxies[manager.currentIndex]
-			if proxy.isAvailable() {
-				return proxy
-			}
+	for range m.proxies {
+		m.index = (m.index + 1) % len(m.proxies)
+		proxy := m.proxies[m.index]
+		if proxy.isAvailable() {
+			return proxy
 		}
 	}
 
@@ -58,31 +56,31 @@ func (manager *Manager) Pick() *Proxy {
 	return nil
 }
 
-func (manager *Manager) getProxy(proxyURL string) *Proxy {
-	for _, proxy := range manager.proxies {
-		if proxy.URL == proxyURL {
-			return proxy
+func (m *Manager) getProxy(proxyURL string) *Proxy {
+	for _, p := range m.proxies {
+		if p.URL == proxyURL {
+			return p
 		}
 	}
 	return nil
 }
 
-func (manager *Manager) RecordSuccess(proxyURL string) {
-	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
-	manager.consecutiveFails[proxyURL] = 0
+func (m *Manager) RecordSuccess(proxyURL string) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.consecutiveFails[proxyURL] = 0
 }
 
-func (manager *Manager) RecordFailure(proxyURL string) {
-	manager.mutex.Lock()
-	defer manager.mutex.Unlock()
+func (m *Manager) RecordFailure(proxyURL string) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 
-	manager.consecutiveFails[proxyURL]++
-	if manager.consecutiveFails[proxyURL] >= consecutiveFailThreshold {
-		proxy := manager.getProxy(proxyURL)
+	m.consecutiveFails[proxyURL]++
+	if m.consecutiveFails[proxyURL] >= consecutiveFailThreshold {
+		proxy := m.getProxy(proxyURL)
 		if proxy != nil {
 			proxy.cooldownUntil = time.Now().Add(cooldownDuration)
-			manager.consecutiveFails[proxy.URL] = 0
+			m.consecutiveFails[proxy.URL] = 0
 		}
 	}
 }
