@@ -8,9 +8,12 @@ import (
 )
 
 type Config struct {
-	Server ServerConfig `yaml:"server"`
-	Solver SolverConfig `yaml:"solver"`
-	Proxy  ProxyConfig  `yaml:"proxy"`
+	Server    ServerConfig    `yaml:"server"`
+	Solver    SolverConfig    `yaml:"solver"`
+	Proxy     ProxyConfig     `yaml:"proxy"`
+	Redis     RedisConfig     `yaml:"redis"`
+	Cache     CacheConfig     `yaml:"cache"`
+	RateLimit RateLimitConfig `yaml:"rate_limit"`
 }
 
 type ServerConfig struct {
@@ -37,6 +40,21 @@ type HealthCheckConfig struct {
 	Timeout  time.Duration `yaml:"timeout"`
 }
 
+type RedisConfig struct {
+	Address  string `yaml:"address"`
+	Password string `yaml:"password"`
+	DB       int    `yaml:"db"`
+}
+
+type CacheConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	TTL     time.Duration `yaml:"ttl"`
+}
+
+type RateLimitConfig struct {
+	MaxRPSPerDomain int64 `yaml:"max_rps_per_domain"`
+}
+
 func Load(configYamlFile string) (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
@@ -49,6 +67,11 @@ func Load(configYamlFile string) (*Config, error) {
 		Proxy: ProxyConfig{
 			HealthCheck: HealthCheckConfig{Interval: 30 * time.Second, Timeout: 10 * time.Second},
 		},
+		Redis: RedisConfig{
+			Address: "localhost:6379",
+		},
+		Cache:     CacheConfig{TTL: 5 * time.Minute},
+		RateLimit: RateLimitConfig{MaxRPSPerDomain: 2},
 	}
 
 	data, err := os.ReadFile(configYamlFile)

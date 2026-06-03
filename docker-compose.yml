@@ -1,0 +1,34 @@
+x-common: &common
+  networks:
+    - default
+  restart: unless-stopped
+  logging:
+    driver: 'json-file'
+    options:
+      max-size: '10m'
+      max-file: '3'
+
+services:
+  valkey:
+    image: valkey/valkey:8
+    hostname: valkey
+    volumes:
+      - valkey_data:/data
+    command: >
+      valkey-server
+        --requirepass ${VALKEY_PASSWORD:-redis}
+        --maxmemory 512mb
+        --maxmemory-policy allkeys-lru
+        --save 60 1
+    ports:
+      - 6379:6379
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+        reservations:
+          memory: 128m
+    <<: *common
+
+volumes:
+  valkey_data:

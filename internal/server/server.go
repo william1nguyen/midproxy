@@ -11,7 +11,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/william1nguyen/midproxy/internal/cache"
 	"github.com/william1nguyen/midproxy/internal/config"
+	"github.com/william1nguyen/midproxy/internal/cookies"
+	"github.com/william1nguyen/midproxy/internal/fetcher"
+	"github.com/william1nguyen/midproxy/internal/proxy"
+	"github.com/william1nguyen/midproxy/internal/ratelimit"
+	"github.com/william1nguyen/midproxy/internal/redisclient"
 )
 
 type Server struct {
@@ -19,7 +25,19 @@ type Server struct {
 }
 
 func New(cfg *config.Config) *Server {
-	router := setupRouter(cfg)
+	rdb, err := redisclient.New(cfg.Redis)
+
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to connect redis")
+	}
+
+	proxyManager := proxy.NewManager(cfg.Proxy.URLs)
+	limiter := ratelimit.New(rdb, cfg.RateLimit.MaxRPSPerDomain)
+	cacheClient := cache.New(rdb, cfg.Cache.TTL, cfg.Cache.Enabled)
+	cookieStore := cookies.New(rdb)
+	f := fetcher.New(cfg.Server.Fetcher.Timeout, proxyManager, cacheClient, cookieStore, limiter)
+
+	router := setupRouter(f)
 
 	return &Server{
 		httpServer: &http.Server{

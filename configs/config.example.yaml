@@ -11,3 +11,15 @@ solver:
 proxy:
   urls:
     - http://username:password@host:port
+
+redis:
+  address: localhost:6379
+  password: redis
+  db: 1
+
+cache:
+  enabled: true
+  ttl: 5m
+
+rate_limit:
+  max_rps_per_domain: 5

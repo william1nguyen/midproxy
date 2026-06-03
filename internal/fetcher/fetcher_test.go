@@ -16,8 +16,8 @@ func TestFetcher(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	f := fetcher.New(5*time.Second, nil)
-	html, code, err := f.Fetch(context.Background(), srv.URL, nil, nil)
+	f := fetcher.New(5*time.Second, nil, nil, nil, nil)
+	html, code, err := f.Fetch(context.Background(), srv.URL, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

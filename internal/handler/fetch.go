@@ -25,9 +25,9 @@ func NewFetchHandler(f *fetcher.Fetcher) gin.HandlerFunc {
 			return
 		}
 
-		html, statusCode, err := f.Fetch(c.Request.Context(), req.URL, nil, nil)
+		html, statusCode, err := f.Fetch(c.Request.Context(), req.URL, nil)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "fetch_failed", "message": err.Error()})
+			c.JSON(statusCode, gin.H{"error": "fetch_failed", "message": err.Error()})
 			return
 		}
 		c.PureJSON(http.StatusOK, FetchResponse{HTML: html, StatusCode: statusCode, URL: req.URL})
