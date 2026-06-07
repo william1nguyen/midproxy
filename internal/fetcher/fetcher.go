@@ -4,37 +4,24 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/url"
 	"sync"
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
 	tlsClient "github.com/bogdanfinn/tls-client"
 	"github.com/bogdanfinn/tls-client/profiles"
-	"github.com/william1nguyen/midproxy/internal/cache"
-	"github.com/william1nguyen/midproxy/internal/cookies"
-	"github.com/william1nguyen/midproxy/internal/proxy"
-	"github.com/william1nguyen/midproxy/internal/ratelimit"
 )
 
 type Fetcher struct {
-	timeout      time.Duration
-	mutex        sync.RWMutex
-	clients      map[string]tlsClient.HttpClient
-	proxyManager *proxy.Manager
-	cache        *cache.Cache
-	cookieStore  *cookies.Store
-	limiter      *ratelimit.Limiter
+	timeout time.Duration
+	mutex   sync.RWMutex
+	clients map[string]tlsClient.HttpClient
 }
 
-func New(timeout time.Duration, proxyManager *proxy.Manager, cache *cache.Cache, cookieStore *cookies.Store, limiter *ratelimit.Limiter) *Fetcher {
+func New(timeout time.Duration) *Fetcher {
 	return &Fetcher{
-		timeout:      timeout,
-		proxyManager: proxyManager,
-		clients:      make(map[string]tlsClient.HttpClient),
-		cache:        cache,
-		cookieStore:  cookieStore,
-		limiter:      limiter,
+		timeout: timeout,
+		clients: make(map[string]tlsClient.HttpClient),
 	}
 }
 
@@ -68,56 +55,7 @@ func (f *Fetcher) getTLSClient(proxyURL string) (tlsClient.HttpClient, error) {
 	return client, nil
 }
 
-func (f *Fetcher) Fetch(ctx context.Context, url string, headers map[string]string) (string, int, error) {
-	domain := f.getDomainFromURL(url)
-
-	if f.limiter != nil {
-		if allowed, err := f.limiter.Allow(ctx, domain); err == nil && !allowed {
-			return "", fhttp.StatusTooManyRequests, fmt.Errorf("rate limited: domain %s", domain)
-		}
-	}
-
-	if f.cache != nil {
-		if entry, err := f.cache.Get(ctx, url); err == nil && entry != nil {
-			return entry.HTML, entry.StatusCode, nil
-		}
-	}
-
-	var cookies []*fhttp.Cookie
-	if f.cookieStore != nil {
-		if c, err := f.cookieStore.Get(ctx, domain); err == nil {
-			cookies = c
-		}
-	}
-
-	if f.proxyManager == nil {
-		return f.fetchWithProxy(ctx, url, headers, cookies, nil)
-	}
-
-	proxy := f.proxyManager.Pick()
-	html, statusCode, err := f.fetchWithProxy(ctx, url, headers, cookies, proxy)
-	if proxy != nil {
-		if err == nil {
-			f.proxyManager.RecordSuccess(proxy.URL)
-		} else {
-			f.proxyManager.RecordFailure(proxy.URL)
-		}
-	}
-
-	requestSucceed := statusCode >= 200 && statusCode < 400
-	if f.cache != nil && requestSucceed {
-		f.cache.Set(ctx, url, &cache.Entry{HTML: html, StatusCode: statusCode})
-	}
-
-	return html, statusCode, err
-}
-
-func (f *Fetcher) fetchWithProxy(ctx context.Context, url string, headers map[string]string, cookies []*fhttp.Cookie, proxy *proxy.Proxy) (string, int, error) {
-	proxyURL := ""
-	if proxy != nil {
-		proxyURL = proxy.URL
-	}
-
+func (f *Fetcher) Fetch(ctx context.Context, url string, headers map[string]string, proxyURL string, cookies []*fhttp.Cookie) (string, int, error) {
 	client, err := f.getTLSClient(proxyURL)
 	if err != nil {
 		return "", fhttp.StatusBadGateway, fmt.Errorf("create tls client: %w", err)
@@ -148,12 +86,4 @@ func (f *Fetcher) fetchWithProxy(ctx context.Context, url string, headers map[st
 	}
 
 	return string(body), response.StatusCode, nil
-}
-
-func (f *Fetcher) getDomainFromURL(targetUrl string) string {
-	u, err := url.Parse(targetUrl)
-	if err != nil {
-		return targetUrl
-	}
-	return u.Hostname()
 }
