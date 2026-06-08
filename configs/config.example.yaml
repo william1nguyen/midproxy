@@ -5,8 +5,7 @@ proxies:
   - http://user:pass@proxy2:8080
 
 solver:
-  nodes:
-    - http://localhost:3000
+  enabled: true
   timeout: 90s
 
 redis:

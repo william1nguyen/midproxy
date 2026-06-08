@@ -38,8 +38,8 @@ func main() {
 	}
 
 	var slv *solver.Solver
-	if len(cfg.Solver.Nodes) > 0 {
-		slv = solver.New(cfg.Solver.Nodes, cfg.Solver.Timeout)
+	if cfg.Solver.Enabled {
+		slv = solver.New(rdb, cfg.Solver.Timeout)
 	}
 
 	srv := proxy.NewServer(proxy.ServerConfig{

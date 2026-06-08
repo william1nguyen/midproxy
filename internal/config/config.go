@@ -22,7 +22,7 @@ type FetchConfig struct {
 }
 
 type SolverConfig struct {
-	Nodes   []string      `yaml:"nodes"`
+	Enabled bool          `yaml:"enabled"`
 	Timeout time.Duration `yaml:"timeout"`
 }
 

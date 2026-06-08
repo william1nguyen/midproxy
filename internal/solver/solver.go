@@ -1,79 +1,73 @@
 package solver
 
 import (
-	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"sync"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog/log"
 	"github.com/william1nguyen/midproxy/internal/store"
 )
 
-// Solver calls external puppeteer browser nodes to solve Cloudflare challenges.
-// Each node runs a real browser pool (puppeteer).
-// Nodes are selected round-robin as a simple load balancer.
-type Solver struct {
-	nodes  []string
-	mu     sync.Mutex
-	index  int
-	client *http.Client
-}
-
-func New(nodes []string, timeout time.Duration) *Solver {
-	return &Solver{
-		nodes:  nodes,
-		client: &http.Client{Timeout: timeout},
-	}
-}
-
-func (s *Solver) pickNode() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.nodes) == 0 {
-		return ""
-	}
-	s.index = (s.index + 1) % len(s.nodes)
-	return s.nodes[s.index]
-}
-
-type solveRequest struct {
+type job struct {
+	ID    string `json:"id"`
 	URL   string `json:"url"`
 	Proxy string `json:"proxy"`
 }
 
-type solveResponse struct {
+type reply struct {
 	Cookies []store.Cookie `json:"cookies"`
+	Error   string         `json:"error,omitempty"`
+}
+
+type Solver struct {
+	rdb     *redis.Client
+	timeout time.Duration
+}
+
+func New(rdb *redis.Client, timeout time.Duration) *Solver {
+	return &Solver{rdb: rdb, timeout: timeout}
 }
 
 func (s *Solver) Solve(ctx context.Context, targetURL, proxyURL string) ([]store.Cookie, error) {
-	node := s.pickNode()
-	if node == "" {
-		return nil, fmt.Errorf("no solver nodes available")
+	id := newJobID()
+
+	payload, _ := json.Marshal(job{ID: id, URL: targetURL, Proxy: proxyURL})
+
+	if err := s.rdb.LPush(ctx, "queue:solve", payload).Err(); err != nil {
+		return nil, fmt.Errorf("push solve job: %w", err)
 	}
 
-	payload, _ := json.Marshal(solveRequest{URL: targetURL, Proxy: proxyURL})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, node+"/solve", bytes.NewReader(payload))
+	log.Debug().Str("id", id).Str("url", targetURL).Msg("solve job pushed")
+
+	replyKey := "reply:" + id
+	result, err := s.rdb.BRPop(ctx, s.timeout, replyKey).Result()
 	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("solver request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("solver returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("solver timeout or error: %w", err)
 	}
 
-	var result solveResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode solver response: %w", err)
+	// cleanup reply key
+	s.rdb.Del(ctx, replyKey)
+
+	var r reply
+	if err := json.Unmarshal([]byte(result[1]), &r); err != nil {
+		return nil, fmt.Errorf("decode solver reply: %w", err)
 	}
-	return result.Cookies, nil
+
+	if r.Error != "" {
+		return nil, fmt.Errorf("solver: %s", r.Error)
+	}
+
+	log.Debug().Str("id", id).Int("cookies", len(r.Cookies)).Msg("solve reply received")
+	return r.Cookies, nil
+}
+
+func newJobID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
