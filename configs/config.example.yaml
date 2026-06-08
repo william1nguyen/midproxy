@@ -1,25 +1,25 @@
-server:
-  port: 8000
-  fetcher:
-    timeout: 30s
+port: 8080
+
+proxies:
+  - http://user:pass@proxy1:8080
+  - http://user:pass@proxy2:8080
 
 solver:
   nodes:
     - http://localhost:3000
   timeout: 90s
 
-proxy:
-  urls:
-    - http://username:password@host:port
-
 redis:
   address: localhost:6379
-  password: redis
-  db: 1
+  password: ""
+  db: 0
+
+fetch:
+  timeout: 30s
 
 cache:
   enabled: true
   ttl: 5m
 
 rate_limit:
-  max_rps_per_domain: 5
+  max_rps: 5

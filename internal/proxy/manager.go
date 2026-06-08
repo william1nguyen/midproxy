@@ -8,79 +8,71 @@ import (
 )
 
 const (
-	consecutiveFailThreshold = 3
-	cooldownDuration         = 5 * time.Minute
+	maxConsecutiveFails = 3
+	cooldownDuration    = 5 * time.Minute
 )
 
-type Proxy struct {
-	URL           string
+type upstream struct {
+	url           string
 	cooldownUntil time.Time
 }
 
-func (p *Proxy) isAvailable() bool {
-	return time.Now().After(p.cooldownUntil)
-}
-
 type Manager struct {
-	mutex            sync.Mutex
-	proxies          []*Proxy
-	consecutiveFails map[string]int
-	index            int
+	mu       sync.Mutex
+	upstreams []upstream
+	fails    map[string]int
+	index    int
 }
 
-func NewManager(proxyURLs []string) *Manager {
-	proxies := make([]*Proxy, 0, len(proxyURLs))
-	for _, u := range proxyURLs {
-		proxies = append(proxies, &Proxy{URL: u})
+func NewManager(urls []string) *Manager {
+	upstreams := make([]upstream, len(urls))
+	for i, u := range urls {
+		upstreams[i] = upstream{url: u}
 	}
-
 	return &Manager{
-		proxies:          proxies,
-		consecutiveFails: make(map[string]int),
+		upstreams: upstreams,
+		fails:     make(map[string]int),
 	}
 }
 
-func (m *Manager) Pick() *Proxy {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+func (m *Manager) Pick() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	for range m.proxies {
-		m.index = (m.index + 1) % len(m.proxies)
-		proxy := m.proxies[m.index]
-		if proxy.isAvailable() {
-			return proxy
+	if len(m.upstreams) == 0 {
+		return ""
+	}
+
+	for range m.upstreams {
+		m.index = (m.index + 1) % len(m.upstreams)
+		u := &m.upstreams[m.index]
+		if time.Now().After(u.cooldownUntil) {
+			return u.url
 		}
 	}
 
-	log.Warn().Msg("no available proxy")
-	return nil
+	log.Warn().Msg("no available upstream proxy")
+	return ""
 }
 
-func (m *Manager) getProxy(proxyURL string) *Proxy {
-	for _, p := range m.proxies {
-		if p.URL == proxyURL {
-			return p
+func (m *Manager) RecordSuccess(url string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.fails[url] = 0
+}
+
+func (m *Manager) RecordFailure(url string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.fails[url]++
+	if m.fails[url] >= maxConsecutiveFails {
+		for i := range m.upstreams {
+			if m.upstreams[i].url == url {
+				m.upstreams[i].cooldownUntil = time.Now().Add(cooldownDuration)
+				break
+			}
 		}
-	}
-	return nil
-}
-
-func (m *Manager) RecordSuccess(proxyURL string) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	m.consecutiveFails[proxyURL] = 0
-}
-
-func (m *Manager) RecordFailure(proxyURL string) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	m.consecutiveFails[proxyURL]++
-	if m.consecutiveFails[proxyURL] >= consecutiveFailThreshold {
-		proxy := m.getProxy(proxyURL)
-		if proxy != nil {
-			proxy.cooldownUntil = time.Now().Add(cooldownDuration)
-			m.consecutiveFails[proxy.URL] = 0
-		}
+		m.fails[url] = 0
 	}
 }

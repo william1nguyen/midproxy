@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"os"
 
 	"github.com/redis/go-redis/v9"
@@ -9,36 +11,47 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/william1nguyen/midproxy/internal/config"
-	"github.com/william1nguyen/midproxy/internal/redisclient"
-	"github.com/william1nguyen/midproxy/internal/server"
+	"github.com/william1nguyen/midproxy/internal/fetch"
+	"github.com/william1nguyen/midproxy/internal/proxy"
+	"github.com/william1nguyen/midproxy/internal/solver"
+	"github.com/william1nguyen/midproxy/internal/store"
 )
 
 func main() {
-	cfg := loadConfig()
-	rdb := mustConnectRedis(cfg.Redis)
-	srv := server.New(cfg, rdb)
-	srv.Run()
-}
-
-func loadConfig() *config.Config {
-	configYamlFile := flag.String("config", "configs/config.yaml", "config yaml file")
+	configFile := flag.String("config", "configs/config.yaml", "config yaml file")
 	flag.Parse()
 
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-	cfg, err := config.Load(*configYamlFile)
+	cfg, err := config.Load(*configFile)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
-	log.Info().Any("config", cfg).Msg("loaded config")
-	return cfg
-}
-
-func mustConnectRedis(cfg config.RedisConfig) *redis.Client {
-	rdb, err := redisclient.New(cfg)
-	if err != nil {
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Address,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		log.Fatal().Err(err).Msg("failed to connect redis")
 	}
-	return rdb
+
+	var slv *solver.Solver
+	if len(cfg.Solver.Nodes) > 0 {
+		slv = solver.New(cfg.Solver.Nodes, cfg.Solver.Timeout)
+	}
+
+	srv := proxy.NewServer(proxy.ServerConfig{
+		Addr:         fmt.Sprintf(":%d", cfg.Port),
+		Manager:      proxy.NewManager(cfg.Proxies),
+		FetchClient:  fetch.NewClient(cfg.Fetch.Timeout),
+		Store:        store.New(rdb, cfg.Cache.TTL, cfg.RateLimit.MaxRPS),
+		Solver:       slv,
+		CacheEnabled: cfg.Cache.Enabled,
+	})
+
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatal().Err(err).Msg("server error")
+	}
 }
