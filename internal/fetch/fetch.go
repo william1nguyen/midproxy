@@ -51,7 +51,7 @@ func (c *Client) getOrCreate(proxyURL string) (tlsClient.HttpClient, error) {
 
 	opts := []tlsClient.HttpClientOption{
 		tlsClient.WithTimeoutSeconds(int(c.timeout.Seconds())),
-		tlsClient.WithClientProfile(profiles.Chrome_120),
+		tlsClient.WithClientProfile(profiles.Chrome_131),
 	}
 	if proxyURL != "" {
 		opts = append(opts, tlsClient.WithProxyUrl(proxyURL))
@@ -65,8 +65,7 @@ func (c *Client) getOrCreate(proxyURL string) (tlsClient.HttpClient, error) {
 	return client, nil
 }
 
-// Forward sends an HTTP request through the TLS client with Chrome fingerprint.
-func (c *Client) Forward(ctx context.Context, r *http.Request, proxyURL string, cookies []store.Cookie) (*Response, error) {
+func (c *Client) Forward(ctx context.Context, r *http.Request, proxyURL string, solve *store.SolveResult) (*Response, error) {
 	client, err := c.getOrCreate(proxyURL)
 	if err != nil {
 		return nil, fmt.Errorf("create tls client: %w", err)
@@ -82,12 +81,16 @@ func (c *Client) Forward(ctx context.Context, r *http.Request, proxyURL string, 
 			req.Header.Add(k, v)
 		}
 	}
-	// remove hop-by-hop headers
 	req.Header.Del("Proxy-Connection")
 	req.Header.Del("Proxy-Authorization")
 
-	for _, cookie := range cookies {
-		req.AddCookie(&fhttp.Cookie{Name: cookie.Name, Value: cookie.Value})
+	if solve != nil {
+		if solve.UserAgent != "" {
+			req.Header.Set("User-Agent", solve.UserAgent)
+		}
+		for _, cookie := range solve.Cookies {
+			req.AddCookie(&fhttp.Cookie{Name: cookie.Name, Value: cookie.Value})
+		}
 	}
 
 	resp, err := client.Do(req)
@@ -112,11 +115,12 @@ func (c *Client) Forward(ctx context.Context, r *http.Request, proxyURL string, 
 }
 
 func IsCloudflareChallenge(statusCode int, body []byte) bool {
-	if statusCode != 403 {
+	if statusCode != 403 && statusCode != 503 {
 		return false
 	}
 	s := string(body)
 	return strings.Contains(s, "cf-browser-verification") ||
 		strings.Contains(s, "cf_chl_opt") ||
-		strings.Contains(s, "challenge-platform")
+		strings.Contains(s, "challenge-platform") ||
+		strings.Contains(s, "Just a moment")
 }
