@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -192,7 +193,8 @@ func dialViaProxy(proxyURL, targetHost string) (net.Conn, error) {
 	}
 	if u.User != nil {
 		pw, _ := u.User.Password()
-		req.SetBasicAuth(u.User.Username(), pw)
+		creds := base64.StdEncoding.EncodeToString([]byte(u.User.Username() + ":" + pw))
+		req.Header.Set("Proxy-Authorization", "Basic "+creds)
 	}
 
 	if err := req.Write(conn); err != nil {

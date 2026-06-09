@@ -6,7 +6,9 @@ const env = {
   },
   browser: {
     headless: process.env.HEADLESS !== "false",
+    maxBrowsers: parseInt(process.env.MAX_BROWSERS || "5", 10),
     maxTabs: parseInt(process.env.MAX_TABS || "3", 10),
+    healthCheckInterval: parseInt(process.env.HEALTH_CHECK_INTERVAL || "30000", 10),
   },
   solver: {
     clearanceTimeout: parseInt(process.env.CLEARANCE_TIMEOUT || "30000", 10),
