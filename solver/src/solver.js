@@ -1,9 +1,10 @@
 import env from "../env.js";
 import logger from "./logger.js";
-import { openPage } from "./pool.js";
+import { checkout } from "./pool.js";
 
 export const solve = async (targetURL, proxyURL) => {
-  const { page, close } = await openPage(proxyURL);
+  logger.info({ targetURL, proxyURL }, "solve called");
+  const { page, release } = await checkout(proxyURL);
 
   try {
     await page.goto(targetURL, {
@@ -20,7 +21,8 @@ export const solve = async (targetURL, proxyURL) => {
       path: c.path,
     }));
   } finally {
-    await close();
+    await page.close().catch(() => {});
+    await release();
   }
 };
 
