@@ -5,7 +5,7 @@ const env = {
     url: process.env.REDIS_URL || "redis://:redis@localhost:6379/1",
   },
   browser: {
-    headless: process.env.HEADLESS !== "false",
+    headless: false,
     maxBrowsers: parseInt(process.env.MAX_BROWSERS || "5", 10),
     maxTabs: parseInt(process.env.MAX_TABS || "3", 10),
     healthCheckInterval: parseInt(process.env.HEALTH_CHECK_INTERVAL || "30000", 10),
@@ -16,10 +16,7 @@ const env = {
   },
   queue: {
     jobQueue: "queue:solve",
-    replyPrefix: "reply:",
-    replyTTL: 120,
-    cookiePrefix: "cookie:",
-    cookieTTL: 1800,
+    cookieTTL: 1200,
   },
 };
 

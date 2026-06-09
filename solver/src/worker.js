@@ -1,39 +1,35 @@
 import logger from "./logger.js";
-import { storeCookies, pushReply, popJob } from "./redis.js";
+import { storeCookies, popJob } from "./redis.js";
 import { solve } from "./solver.js";
-import { stats } from "./pool.js";
+import { stats, isShuttingDown } from "./pool.js";
 
 const processJob = async (job) => {
   const log = logger.child({ jobId: job.id, url: job.url });
 
   try {
     log.info("solving");
-    const cookies = await solve(job.url, job.proxy);
+    const result = await solve(job.url, job.proxy);
 
     const domain = new URL(job.url).hostname;
-    await storeCookies(domain, cookies);
-    await pushReply(job.id, { cookies });
-
-    log.info({ count: cookies.length }, "solved");
+    await storeCookies(domain, result);
+    log.info({ count: result.cookies.length }, "solved");
   } catch (err) {
     log.error({ err: err.message }, "solve failed");
-    await pushReply(job.id, { error: err.message, cookies: [] });
   }
 };
 
 export const run = async () => {
-  logger.info("worker started, waiting for jobs (concurrent mode)");
+  logger.info("worker started, waiting for jobs");
 
-  while (true) {
+  while (!isShuttingDown()) {
     try {
       const job = await popJob();
-      // fire-and-forget: processJob runs concurrently
-      // backpressure is handled by pool.checkout() blocking when pool is full
       processJob(job).catch((err) => {
         logger.error({ err: err.message }, "unhandled job error");
       });
       logger.debug(stats(), "pool stats");
     } catch (err) {
+      if (isShuttingDown()) break;
       logger.error({ err: err.message }, "queue error");
       await new Promise((r) => setTimeout(r, 1000));
     }
