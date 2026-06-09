@@ -1,6 +1,7 @@
 import logger from "./logger.js";
 import { storeCookies, pushReply, popJob } from "./redis.js";
 import { solve } from "./solver.js";
+import { stats } from "./pool.js";
 
 const processJob = async (job) => {
   const log = logger.child({ jobId: job.id, url: job.url });
@@ -21,12 +22,17 @@ const processJob = async (job) => {
 };
 
 export const run = async () => {
-  logger.info("worker started, waiting for jobs");
+  logger.info("worker started, waiting for jobs (concurrent mode)");
 
   while (true) {
     try {
       const job = await popJob();
-      processJob(job);
+      // fire-and-forget: processJob runs concurrently
+      // backpressure is handled by pool.checkout() blocking when pool is full
+      processJob(job).catch((err) => {
+        logger.error({ err: err.message }, "unhandled job error");
+      });
+      logger.debug(stats(), "pool stats");
     } catch (err) {
       logger.error({ err: err.message }, "queue error");
       await new Promise((r) => setTimeout(r, 1000));
