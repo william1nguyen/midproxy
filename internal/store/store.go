@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"time"
 
@@ -17,6 +15,11 @@ type Cookie struct {
 	Path   string `json:"path"`
 }
 
+type SolveResult struct {
+	UserAgent string   `json:"userAgent"`
+	Cookies   []Cookie `json:"cookies"`
+}
+
 type Store struct {
 	rdb      *redis.Client
 	cacheTTL time.Duration
@@ -27,30 +30,26 @@ func New(rdb *redis.Client, cacheTTL time.Duration, maxRPS int64) *Store {
 	return &Store{rdb: rdb, cacheTTL: cacheTTL, maxRPS: maxRPS}
 }
 
-func key(prefix, raw string) string {
-	h := sha256.Sum256([]byte(raw))
-	return prefix + ":" + hex.EncodeToString(h[:8])
+func buildKey(prefix, value string) string {
+	return prefix + ":" + value
 }
 
-// Cache
-
 func (s *Store) GetCache(ctx context.Context, url string) ([]byte, error) {
-	return s.rdb.Get(ctx, key("cache", url)).Bytes()
+	return s.rdb.Get(ctx, buildKey("cache", url)).Bytes()
 }
 
 func (s *Store) SetCache(ctx context.Context, url string, data []byte) error {
-	return s.rdb.Set(ctx, key("cache", url), data, s.cacheTTL).Err()
+	return s.rdb.Set(ctx, buildKey("cache", url), data, s.cacheTTL).Err()
 }
 
-// Cookies
-
-func (s *Store) GetCookies(ctx context.Context, domain string) ([]Cookie, error) {
-	data, err := s.rdb.Get(ctx, key("cookie", domain)).Bytes()
+func (s *Store) GetSolveResult(ctx context.Context, domain string) (*SolveResult, error) {
+	k := buildKey("cookies", domain)
+	data, err := s.rdb.LMove(ctx, k, k, "RIGHT", "LEFT").Result()
 	if err != nil {
 		return nil, err
 	}
-	var cookies []Cookie
-	return cookies, json.Unmarshal(data, &cookies)
+	var result SolveResult
+	return &result, json.Unmarshal([]byte(data), &result)
 }
 
 func (s *Store) SetCookies(ctx context.Context, domain string, cookies []Cookie) error {
@@ -58,21 +57,21 @@ func (s *Store) SetCookies(ctx context.Context, domain string, cookies []Cookie)
 	if err != nil {
 		return err
 	}
-	return s.rdb.Set(ctx, key("cookie", domain), data, 24*time.Hour).Err()
+	k := buildKey("cookies", domain)
+	s.rdb.LPush(ctx, k, data)
+	return s.rdb.Expire(ctx, k, 20*time.Minute).Err()
 }
-
-// Rate limit
 
 func (s *Store) AllowRequest(ctx context.Context, domain string) bool {
 	if s.maxRPS <= 0 {
 		return true
 	}
-	k := key("rl", domain)
+	k := buildKey("rl", domain)
 	pipe := s.rdb.Pipeline()
 	incr := pipe.Incr(ctx, k)
 	pipe.Expire(ctx, k, time.Second)
 	if _, err := pipe.Exec(ctx); err != nil {
-		return true // fail open
+		return true
 	}
 	return incr.Val() <= s.maxRPS
 }
