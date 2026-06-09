@@ -3,12 +3,10 @@ package proxy
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
+	"crypto/tls"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -24,6 +22,7 @@ type Server struct {
 	store   *store.Store
 	solver  *solver.Solver
 	cache   bool
+	certs   *certStore
 }
 
 type ServerConfig struct {
@@ -36,6 +35,10 @@ type ServerConfig struct {
 }
 
 func NewServer(cfg ServerConfig) *Server {
+	certs, err := newCertStore()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create cert store")
+	}
 	return &Server{
 		addr:    cfg.Addr,
 		manager: cfg.Manager,
@@ -43,6 +46,7 @@ func NewServer(cfg ServerConfig) *Server {
 		store:   cfg.Store,
 		solver:  cfg.Solver,
 		cache:   cfg.CacheEnabled,
+		certs:   certs,
 	}
 }
 
@@ -59,20 +63,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handleHTTP(w, r)
 }
 
-// handleHTTP forwards HTTP requests with TLS fingerprinting, cache, cookies, rate limit, CF solving.
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
 	domain := r.URL.Hostname()
 
-	// rate limit
 	if s.store != nil && !s.store.AllowRequest(ctx, domain) {
 		http.Error(w, "rate limited", http.StatusTooManyRequests)
 		return
 	}
 
-	// cache check
 	if s.cache && s.store != nil {
 		if data, err := s.store.GetCache(ctx, r.URL.String()); err == nil {
 			w.Header().Set("X-Cache", "HIT")
@@ -83,14 +84,18 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	proxyURL := s.manager.Pick()
 
-	// load stored cookies
-	var cookies []store.Cookie
+	var solve *store.SolveResult
 	if s.store != nil {
-		cookies, _ = s.store.GetCookies(ctx, domain)
+		solve, _ = s.store.GetSolveResult(ctx, domain)
 	}
 
-	// fetch with TLS client (Chrome fingerprint)
-	resp, err := s.fetch.Forward(ctx, r, proxyURL, cookies)
+	if solve != nil {
+		log.Info().Str("url", r.URL.String()).Str("proxy", proxyURL).Str("ua", solve.UserAgent).Interface("cookies", solve.Cookies).Msg("forwarding with cookies")
+	} else {
+		log.Info().Str("url", r.URL.String()).Str("proxy", proxyURL).Msg("forwarding without cookies")
+	}
+
+	resp, err := s.fetch.Forward(ctx, r, proxyURL, solve)
 	if err != nil {
 		log.Error().Err(err).Str("url", r.URL.String()).Msg("fetch failed")
 		http.Error(w, "bad gateway", http.StatusBadGateway)
@@ -98,28 +103,20 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.manager.RecordSuccess(proxyURL)
+	log.Info().Str("url", r.URL.String()).Int("status", resp.StatusCode).Int("body", len(resp.Body)).Msg("fetch result")
 
-	// cloudflare challenge → solve → refetch
 	if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
-		solved, err := s.solver.Solve(ctx, r.URL.String(), proxyURL)
-		if err == nil {
-			if s.store != nil {
-				s.store.SetCookies(ctx, domain, solved)
-			}
-			if retry, err := s.fetch.Forward(ctx, r, proxyURL, solved); err == nil {
-				resp = retry
-			}
-		} else {
-			log.Warn().Err(err).Msg("solver failed, returning original response")
-		}
+		log.Info().Str("url", r.URL.String()).Int("status", resp.StatusCode).Msg("CF challenge detected, triggering solver")
+		go s.solver.Trigger(context.Background(), r.URL.String(), proxyURL)
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "solving challenge", http.StatusServiceUnavailable)
+		return
 	}
 
-	// cache successful responses
 	if s.cache && s.store != nil && resp.StatusCode == http.StatusOK {
 		s.store.SetCache(ctx, r.URL.String(), resp.Body)
 	}
 
-	// forward response to client
 	for k, vv := range resp.Header {
 		for _, v := range vv {
 			w.Header().Add(k, v)
@@ -129,37 +126,17 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(resp.Body)
 }
 
-// handleConnect tunnels HTTPS through upstream proxy (no fingerprinting possible).
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
-	proxyURL := s.manager.Pick()
-
-	var targetConn net.Conn
-	var err error
-
-	if proxyURL != "" {
-		targetConn, err = dialViaProxy(proxyURL, r.Host)
-		if err != nil {
-			log.Error().Err(err).Str("host", r.Host).Msg("CONNECT failed")
-			http.Error(w, "bad gateway", http.StatusBadGateway)
-			s.manager.RecordFailure(proxyURL)
-			return
-		}
-		s.manager.RecordSuccess(proxyURL)
-	} else {
-		targetConn, err = net.DialTimeout("tcp", r.Host, 30*time.Second)
-		if err != nil {
-			http.Error(w, "bad gateway", http.StatusBadGateway)
-			return
-		}
+	host, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		host = r.Host
 	}
-	defer targetConn.Close()
 
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "hijacking not supported", http.StatusInternalServerError)
 		return
 	}
-
 	clientConn, _, err := hijacker.Hijack()
 	if err != nil {
 		return
@@ -168,48 +145,64 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	done := make(chan struct{}, 2)
-	go func() { io.Copy(targetConn, clientConn); done <- struct{}{} }()
-	go func() { io.Copy(clientConn, targetConn); done <- struct{}{} }()
-	<-done
-}
-
-func dialViaProxy(proxyURL, targetHost string) (net.Conn, error) {
-	u, err := url.Parse(proxyURL)
+	cert, err := s.certs.get(host)
 	if err != nil {
-		return nil, err
+		log.Error().Err(err).Str("host", host).Msg("cert generation failed")
+		return
 	}
+	tlsConn := tls.Server(clientConn, &tls.Config{Certificates: []tls.Certificate{*cert}})
+	if err := tlsConn.Handshake(); err != nil {
+		log.Error().Err(err).Str("host", host).Msg("TLS handshake failed")
+		return
+	}
+	defer tlsConn.Close()
 
-	conn, err := net.DialTimeout("tcp", u.Host, 30*time.Second)
+	req, err := http.ReadRequest(bufio.NewReader(tlsConn))
 	if err != nil {
-		return nil, err
+		log.Error().Err(err).Msg("read request failed")
+		return
+	}
+	defer req.Body.Close()
+
+	req.URL.Scheme = "https"
+	req.URL.Host = host
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	domain := host
+	proxyURL := s.manager.Pick()
+
+	var solve *store.SolveResult
+	if s.store != nil {
+		solve, _ = s.store.GetSolveResult(ctx, domain)
 	}
 
-	req := &http.Request{
-		Method: http.MethodConnect,
-		URL:    &url.URL{Opaque: targetHost},
-		Host:   targetHost,
-		Header: make(http.Header),
-	}
-	if u.User != nil {
-		pw, _ := u.User.Password()
-		creds := base64.StdEncoding.EncodeToString([]byte(u.User.Username() + ":" + pw))
-		req.Header.Set("Proxy-Authorization", "Basic "+creds)
+	if solve != nil {
+		log.Info().Str("url", req.URL.String()).Str("proxy", proxyURL).Str("ua", solve.UserAgent).Interface("cookies", solve.Cookies).Msg("forwarding with cookies")
+	} else {
+		log.Info().Str("url", req.URL.String()).Str("proxy", proxyURL).Msg("forwarding without cookies")
 	}
 
-	if err := req.Write(conn); err != nil {
-		conn.Close()
-		return nil, err
-	}
-
-	resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+	resp, err := s.fetch.Forward(ctx, req, proxyURL, solve)
 	if err != nil {
-		conn.Close()
-		return nil, err
+		log.Error().Err(err).Str("url", req.URL.String()).Msg("fetch failed")
+		tlsConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		s.manager.RecordFailure(proxyURL)
+		return
 	}
-	if resp.StatusCode != http.StatusOK {
-		conn.Close()
-		return nil, fmt.Errorf("upstream CONNECT returned %d", resp.StatusCode)
+	s.manager.RecordSuccess(proxyURL)
+	log.Info().Str("url", req.URL.String()).Int("status", resp.StatusCode).Int("body", len(resp.Body)).Msg("fetch result")
+
+	if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
+		log.Info().Str("url", req.URL.String()).Msg("CF challenge detected, triggering solver")
+		go s.solver.Trigger(context.Background(), req.URL.String(), proxyURL)
+		tlsConn.Write([]byte("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 60\r\n\r\nsolving challenge\n"))
+		return
 	}
-	return conn, nil
+
+	fmt.Fprintf(tlsConn, "HTTP/1.1 %d %s\r\n", resp.StatusCode, http.StatusText(resp.StatusCode))
+	resp.Header.Write(tlsConn)
+	tlsConn.Write([]byte("\r\n"))
+	tlsConn.Write(resp.Body)
 }
