@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -18,6 +20,7 @@ type Cookie struct {
 type SolveResult struct {
 	UserAgent string   `json:"userAgent"`
 	Cookies   []Cookie `json:"cookies"`
+	ProxyURL  string   `json:"proxyURL"`
 }
 
 type Store struct {
@@ -34,12 +37,43 @@ func buildKey(prefix, value string) string {
 	return prefix + ":" + value
 }
 
-func (s *Store) GetCache(ctx context.Context, url string) ([]byte, error) {
-	return s.rdb.Get(ctx, buildKey("cache", url)).Bytes()
+type CachedResponse struct {
+	StatusCode int         `json:"statusCode"`
+	Header     http.Header `json:"header"`
+	Body       string      `json:"body"`
 }
 
-func (s *Store) SetCache(ctx context.Context, url string, data []byte) error {
-	return s.rdb.Set(ctx, buildKey("cache", url), data, s.cacheTTL).Err()
+func cacheKey(method, url string) string {
+	return "cache:" + method + ":" + url
+}
+
+func (s *Store) GetCachedResponse(ctx context.Context, method, url string) (*CachedResponse, error) {
+	data, err := s.rdb.Get(ctx, cacheKey(method, url)).Bytes()
+	if err != nil {
+		return nil, err
+	}
+	var resp CachedResponse
+	return &resp, json.Unmarshal(data, &resp)
+}
+
+func (s *Store) SetCachedResponse(ctx context.Context, method, url string, resp *CachedResponse) error {
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	return s.rdb.Set(ctx, cacheKey(method, url), data, s.cacheTTL).Err()
+}
+
+func EncodeCachedResponse(statusCode int, header http.Header, body []byte) *CachedResponse {
+	return &CachedResponse{
+		StatusCode: statusCode,
+		Header:     header,
+		Body:       base64.StdEncoding.EncodeToString(body),
+	}
+}
+
+func (c *CachedResponse) DecodeBody() ([]byte, error) {
+	return base64.StdEncoding.DecodeString(c.Body)
 }
 
 func (s *Store) GetSolveResult(ctx context.Context, domain string) (*SolveResult, error) {
@@ -52,15 +86,6 @@ func (s *Store) GetSolveResult(ctx context.Context, domain string) (*SolveResult
 	return &result, json.Unmarshal([]byte(data), &result)
 }
 
-func (s *Store) SetCookies(ctx context.Context, domain string, cookies []Cookie) error {
-	data, err := json.Marshal(cookies)
-	if err != nil {
-		return err
-	}
-	k := buildKey("cookies", domain)
-	s.rdb.LPush(ctx, k, data)
-	return s.rdb.Expire(ctx, k, 20*time.Minute).Err()
-}
 
 func (s *Store) AllowRequest(ctx context.Context, domain string) bool {
 	if s.maxRPS <= 0 {
