@@ -64,6 +64,40 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handleHTTP(w, r)
 }
 
+func (s *Server) resolveProxy(ctx context.Context, domain string) (*store.SolveResult, string) {
+	var solve *store.SolveResult
+	if s.store != nil {
+		solve, _ = s.store.GetSolveResult(ctx, domain)
+	}
+
+	if solve != nil && solve.ProxyURL != "" {
+		return solve, solve.ProxyURL
+	}
+	return solve, s.manager.Pick()
+}
+
+func (s *Server) cacheGet(ctx context.Context, method, url string) ([]byte, *store.CachedResponse, bool) {
+	if !s.cache || s.store == nil || method != http.MethodGet {
+		return nil, nil, false
+	}
+	cached, err := s.store.GetCachedResponse(ctx, method, url)
+	if err != nil {
+		return nil, nil, false
+	}
+	body, err := cached.DecodeBody()
+	if err != nil {
+		return nil, nil, false
+	}
+	log.Info().Str("url", url).Int("status", cached.StatusCode).Int("body", len(body)).Msg("cache hit")
+	return body, cached, true
+}
+
+func (s *Server) cacheSet(ctx context.Context, method, url string, resp *fetch.Response) {
+	if s.cache && s.store != nil && method == http.MethodGet && resp.StatusCode == http.StatusOK {
+		s.store.SetCachedResponse(ctx, method, url, store.EncodeCachedResponse(resp.StatusCode, resp.Header, resp.Body))
+	}
+}
+
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -75,41 +109,20 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.cache && s.store != nil && r.Method == http.MethodGet {
-		if cached, err := s.store.GetCachedResponse(ctx, r.Method, r.URL.String()); err == nil {
-			body, err := cached.DecodeBody()
-			if err == nil {
-				for k, vv := range cached.Header {
-					for _, v := range vv {
-						w.Header().Add(k, v)
-					}
-				}
-				log.Info().Str("url", r.URL.String()).Int("status", cached.StatusCode).Int("body", len(body)).Msg("cache hit")
-				w.Header().Set("X-Cache", "HIT")
-				w.WriteHeader(cached.StatusCode)
-				w.Write(body)
-				return
+	if body, cached, ok := s.cacheGet(ctx, r.Method, r.URL.String()); ok {
+		for k, vv := range cached.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
 			}
 		}
+		w.Header().Set("X-Cache", "HIT")
+		w.WriteHeader(cached.StatusCode)
+		w.Write(body)
+		return
 	}
 
-	var solve *store.SolveResult
-	if s.store != nil {
-		solve, _ = s.store.GetSolveResult(ctx, domain)
-	}
-
-	var proxyURL string
-	if solve != nil && solve.ProxyURL != "" {
-		proxyURL = solve.ProxyURL
-	} else {
-		proxyURL = s.manager.Pick()
-	}
-
-	if solve != nil {
-		log.Info().Str("url", r.URL.String()).Str("proxy", proxyURL).Str("ua", solve.UserAgent).Interface("cookies", solve.Cookies).Msg("forwarding with cookies")
-	} else {
-		log.Info().Str("url", r.URL.String()).Str("proxy", proxyURL).Msg("forwarding without cookies")
-	}
+	solve, proxyURL := s.resolveProxy(ctx, domain)
+	logForward(r.URL.String(), proxyURL, solve)
 
 	resp, err := s.fetch.Forward(ctx, r, proxyURL, solve)
 	if err != nil {
@@ -122,16 +135,14 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Info().Str("url", r.URL.String()).Int("status", resp.StatusCode).Int("body", len(resp.Body)).Msg("fetch result")
 
 	if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
-		log.Info().Str("url", r.URL.String()).Int("status", resp.StatusCode).Msg("CF challenge detected, triggering solver")
-		go s.solver.Trigger(context.Background(), r.URL.String(), proxyURL)
+		log.Info().Str("url", r.URL.String()).Msg("CF challenge detected, triggering solver")
+		go s.solver.Trigger(context.Background(), r.URL.String())
 		w.Header().Set("Retry-After", "60")
 		http.Error(w, "solving challenge", http.StatusServiceUnavailable)
 		return
 	}
 
-	if s.cache && s.store != nil && r.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		s.store.SetCachedResponse(ctx, r.Method, r.URL.String(), store.EncodeCachedResponse(resp.StatusCode, resp.Header, resp.Body))
-	}
+	s.cacheSet(ctx, r.Method, r.URL.String(), resp)
 
 	for k, vv := range resp.Header {
 		for _, v := range vv {
@@ -140,13 +151,6 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	w.Write(resp.Body)
-}
-
-func writeRawResponse(w io.Writer, statusCode int, header http.Header, body []byte) {
-	fmt.Fprintf(w, "HTTP/1.1 %d %s\r\n", statusCode, http.StatusText(statusCode))
-	header.Write(w)
-	w.Write([]byte("\r\n"))
-	w.Write(body)
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
@@ -195,36 +199,14 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
-		domain := host
-
-		if s.cache && s.store != nil && req.Method == http.MethodGet {
-			if cached, err := s.store.GetCachedResponse(ctx, req.Method, req.URL.String()); err == nil {
-				if body, err := cached.DecodeBody(); err == nil {
-					log.Info().Str("url", req.URL.String()).Int("status", cached.StatusCode).Int("body", len(body)).Msg("cache hit")
-					writeRawResponse(tlsConn, cached.StatusCode, cached.Header, body)
-					cancel()
-					continue
-				}
-			}
+		if body, cached, ok := s.cacheGet(ctx, req.Method, req.URL.String()); ok {
+			writeRawResponse(tlsConn, cached.StatusCode, cached.Header, body)
+			cancel()
+			continue
 		}
 
-		var solve *store.SolveResult
-		if s.store != nil {
-			solve, _ = s.store.GetSolveResult(ctx, domain)
-		}
-
-		var proxyURL string
-		if solve != nil && solve.ProxyURL != "" {
-			proxyURL = solve.ProxyURL
-		} else {
-			proxyURL = s.manager.Pick()
-		}
-
-		if solve != nil {
-			log.Info().Str("url", req.URL.String()).Str("proxy", proxyURL).Str("ua", solve.UserAgent).Interface("cookies", solve.Cookies).Msg("forwarding with cookies")
-		} else {
-			log.Info().Str("url", req.URL.String()).Str("proxy", proxyURL).Msg("forwarding without cookies")
-		}
+		solve, proxyURL := s.resolveProxy(ctx, host)
+		logForward(req.URL.String(), proxyURL, solve)
 
 		resp, err := s.fetch.Forward(ctx, req, proxyURL, solve)
 		req.Body.Close()
@@ -240,7 +222,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 		if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
 			log.Info().Str("url", req.URL.String()).Msg("CF challenge detected, triggering solver")
-			go s.solver.Trigger(context.Background(), req.URL.String(), proxyURL)
+			go s.solver.Trigger(context.Background(), req.URL.String())
 			tlsConn.Write([]byte("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 60\r\n\r\nsolving challenge\n"))
 			cancel()
 			break
@@ -249,11 +231,24 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(resp.Body)))
 		resp.Header.Del("Transfer-Encoding")
 
-		if s.cache && s.store != nil && req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-			s.store.SetCachedResponse(ctx, req.Method, req.URL.String(), store.EncodeCachedResponse(resp.StatusCode, resp.Header, resp.Body))
-		}
+		s.cacheSet(ctx, req.Method, req.URL.String(), resp)
 
 		writeRawResponse(tlsConn, resp.StatusCode, resp.Header, resp.Body)
 		cancel()
+	}
+}
+
+func writeRawResponse(w io.Writer, statusCode int, header http.Header, body []byte) {
+	fmt.Fprintf(w, "HTTP/1.1 %d %s\r\n", statusCode, http.StatusText(statusCode))
+	header.Write(w)
+	w.Write([]byte("\r\n"))
+	w.Write(body)
+}
+
+func logForward(url, proxy string, solve *store.SolveResult) {
+	if solve != nil {
+		log.Info().Str("url", url).Str("proxy", proxy).Str("ua", solve.UserAgent).Msg("forwarding with cookies")
+	} else {
+		log.Info().Str("url", url).Str("proxy", proxy).Msg("forwarding without cookies")
 	}
 }
