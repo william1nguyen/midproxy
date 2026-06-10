@@ -51,12 +51,27 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 }
 
-func (s *Server) ListenAndServe() error {
+func (s *Server) ListenAndServe(ctx context.Context) error {
+	srv := &http.Server{Addr: s.addr, Handler: s}
+
+	go func() {
+		<-ctx.Done()
+		log.Info().Msg("shutting down proxy server")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		srv.Shutdown(shutdownCtx)
+	}()
+
 	log.Info().Str("addr", s.addr).Msg("proxy server starting")
-	return (&http.Server{Addr: s.addr, Handler: s}).ListenAndServe()
+	return srv.ListenAndServe()
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/healthz" {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+		return
+	}
 	if r.Method == http.MethodConnect {
 		s.handleConnect(w, r)
 		return
