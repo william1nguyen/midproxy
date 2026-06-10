@@ -11,9 +11,8 @@ import (
 )
 
 type job struct {
-	ID    string `json:"id"`
-	URL   string `json:"url"`
-	Proxy string `json:"proxy"`
+	ID  string `json:"id"`
+	URL string `json:"url"`
 }
 
 type Solver struct {
@@ -24,9 +23,9 @@ func New(rdb *redis.Client) *Solver {
 	return &Solver{rdb: rdb}
 }
 
-func (s *Solver) Trigger(ctx context.Context, targetURL, proxyURL string) {
+func (s *Solver) Trigger(ctx context.Context, targetURL string) {
 	id := newJobID()
-	payload, _ := json.Marshal(job{ID: id, URL: targetURL, Proxy: proxyURL})
+	payload, _ := json.Marshal(job{ID: id, URL: targetURL})
 
 	if err := s.rdb.LPush(ctx, "queue:solve", payload).Err(); err != nil {
 		log.Error().Err(err).Msg("failed to push solve job")
