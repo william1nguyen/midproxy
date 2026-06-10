@@ -9,12 +9,13 @@ const processJob = async (job) => {
   try {
     log.info("solving");
     const result = await solve(job.url, job.proxy);
-
+    log.info({ cookies: result.cookies.length, ua: result.userAgent?.slice(0, 30) }, "solve returned");
     const domain = new URL(job.url).hostname;
+    result.proxyURL = job.proxy || "";
     await storeCookies(domain, result);
     log.info({ count: result.cookies.length }, "solved");
   } catch (err) {
-    log.error({ err: err.message }, "solve failed");
+    log.error({ err: err.message, stack: err.stack }, "solve failed");
   }
 };
 
