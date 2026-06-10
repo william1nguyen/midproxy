@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -36,11 +38,15 @@ func main() {
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		log.Fatal().Err(err).Msg("failed to connect redis")
 	}
+	defer rdb.Close()
 
 	var slv *solver.Solver
 	if cfg.Solver.Enabled {
 		slv = solver.New(rdb)
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	srv := proxy.NewServer(proxy.ServerConfig{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
@@ -51,7 +57,9 @@ func main() {
 		CacheEnabled: cfg.Cache.Enabled,
 	})
 
-	if err := srv.ListenAndServe(); err != nil {
+	if err := srv.ListenAndServe(ctx); err != nil && ctx.Err() == nil {
 		log.Fatal().Err(err).Msg("server error")
 	}
+
+	log.Info().Msg("shutdown complete")
 }
