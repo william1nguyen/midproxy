@@ -6,9 +6,9 @@ const env = {
   },
   browser: {
     headless: false,
-    maxBrowsers: parseInt(process.env.MAX_BROWSERS || "5", 10),
+    maxBrowsers: parseInt(process.env.MAX_BROWSERS || "3", 10),
     maxTabs: parseInt(process.env.MAX_TABS || "3", 10),
-    healthCheckInterval: parseInt(process.env.HEALTH_CHECK_INTERVAL || "30000", 10),
+    idleTimeout: parseInt(process.env.IDLE_TIMEOUT || "300000", 10),
   },
   solver: {
     clearanceTimeout: parseInt(process.env.CLEARANCE_TIMEOUT || "30000", 10),
@@ -18,6 +18,7 @@ const env = {
     jobQueue: "queue:solve",
     cookieTTL: 1200,
   },
+  proxies: (process.env.PROXY_LIST || "").split(",").filter(Boolean),
 };
 
 export default env;

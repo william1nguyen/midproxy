@@ -1,6 +1,6 @@
 import env from "./env.js";
 import logger from "./src/logger.js";
-import { shutdown as shutdownPool } from "./src/pool.js";
+import { shutdown as shutdownPool, startIdleCleanup } from "./src/pool.js";
 import { shutdown as shutdownRedis } from "./src/redis.js";
 import { run } from "./src/worker.js";
 
@@ -28,8 +28,11 @@ logger.info(
   {
     headless: env.browser.headless,
     maxBrowsers: env.browser.maxBrowsers,
+    maxTabs: env.browser.maxTabs,
+    proxies: env.proxies.length,
   },
   "solver service starting",
 );
 
+startIdleCleanup();
 run();

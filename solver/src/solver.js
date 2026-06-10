@@ -1,38 +1,14 @@
-import { connect } from "puppeteer-real-browser";
+import { acquire, release } from "./pool.js";
 import env from "../env.js";
 import logger from "./logger.js";
-import { acquire, release, trackBrowser, untrackBrowser } from "./pool.js";
 
-export const solve = async (targetURL, proxyURL) => {
-  await acquire();
+export const solve = async (targetURL) => {
+  const result = await acquire();
+  if (!result) throw new Error("pool shutting down");
 
-  const opts = {
-    headless: env.browser.headless,
-    turnstile: true,
-  };
-
-  if (proxyURL) {
-    const u = new URL(proxyURL);
-    opts.proxy = {
-      host: u.hostname,
-      port: u.port,
-      username: u.username,
-      password: u.password,
-    };
-  }
-
-  let browser;
-  try {
-    ({ browser } = await connect(opts));
-    trackBrowser(browser);
-  } catch (err) {
-    release();
-    throw err;
-  }
+  const { entry, page } = result;
 
   try {
-    const page = (await browser.pages())[0] || (await browser.newPage());
-
     await page.goto(targetURL, {
       waitUntil: "networkidle2",
       timeout: env.solver.navigationTimeout,
@@ -42,10 +18,12 @@ export const solve = async (targetURL, proxyURL) => {
 
     const cookies = await waitForClearance(page);
     const userAgent = await page.evaluate(() => navigator.userAgent);
-    logger.info({ cookies, userAgent }, "solve completed");
+
+    logger.info({ cookies: cookies.length, proxy: entry.proxy }, "solve completed");
 
     return {
       userAgent,
+      proxyURL: entry.proxy,
       cookies: cookies.map((c) => ({
         name: c.name,
         value: c.value,
@@ -54,9 +32,7 @@ export const solve = async (targetURL, proxyURL) => {
       })),
     };
   } finally {
-    untrackBrowser(browser);
-    await browser.close().catch(() => {});
-    release();
+    await release(entry, page);
   }
 };
 
