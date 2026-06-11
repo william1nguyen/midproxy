@@ -39,6 +39,12 @@ export const popJob = async () => {
   return JSON.parse(result[1]);
 };
 
+export const isActiveJob = async (domain, jobId) => {
+  const rdb = getClient();
+  const current = await rdb.get(buildKey("solving", domain));
+  return current === jobId;
+};
+
 export const shutdown = async () => {
   if (queueClient) {
     queueClient.disconnect();

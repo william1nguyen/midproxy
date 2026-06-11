@@ -151,8 +151,12 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
 		log.Info().Str("url", r.URL.String()).Msg("CF challenge detected, triggering solver")
-		go s.solver.Trigger(context.Background(), r.URL.String())
-		w.Header().Set("Retry-After", "60")
+		force := solve != nil
+		if force {
+			s.store.InvalidateSolveResult(ctx, domain)
+		}
+		retryAfter := s.solver.Trigger(ctx, r.URL.String(), domain, force)
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
 		http.Error(w, "solving challenge", http.StatusServiceUnavailable)
 		return
 	}
@@ -237,8 +241,12 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 		if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
 			log.Info().Str("url", req.URL.String()).Msg("CF challenge detected, triggering solver")
-			go s.solver.Trigger(context.Background(), req.URL.String())
-			tlsConn.Write([]byte("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 60\r\n\r\nsolving challenge\n"))
+			force := solve != nil
+			if force {
+				s.store.InvalidateSolveResult(ctx, host)
+			}
+			retryAfter := s.solver.Trigger(ctx, req.URL.String(), host, force)
+			tlsConn.Write([]byte(fmt.Sprintf("HTTP/1.1 503 Service Unavailable\r\nRetry-After: %d\r\n\r\nsolving challenge\n", retryAfter)))
 			cancel()
 			break
 		}

@@ -1,15 +1,22 @@
 import logger from "./logger.js";
-import { storeCookies, popJob } from "./redis.js";
+import { storeCookies, popJob, isActiveJob } from "./redis.js";
 import { solve } from "./solver.js";
 import { stats, isShuttingDown } from "./pool.js";
 
 const processJob = async (job) => {
   const log = logger.child({ jobId: job.id, url: job.url });
 
+  const domain = new URL(job.url).hostname;
+
   try {
+    const active = await isActiveJob(domain, job.id);
+    if (!active) {
+      log.info("stale job, skipping");
+      return;
+    }
+
     log.info("solving");
     const result = await solve(job.url);
-    const domain = new URL(job.url).hostname;
     await storeCookies(domain, result);
     log.info({ count: result.cookies.length, proxy: result.proxyURL }, "solved");
   } catch (err) {
