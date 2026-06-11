@@ -86,6 +86,10 @@ func (s *Store) GetSolveResult(ctx context.Context, domain string) (*SolveResult
 	return &result, json.Unmarshal([]byte(data), &result)
 }
 
+func (s *Store) InvalidateSolveResult(ctx context.Context, domain string) {
+	s.rdb.Del(ctx, buildKey("cookies", domain))
+}
+
 func (s *Store) AllowRequest(ctx context.Context, domain string) bool {
 	if s.maxRPS <= 0 {
 		return true

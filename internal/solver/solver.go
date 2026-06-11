@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
@@ -16,23 +17,50 @@ type job struct {
 }
 
 type Solver struct {
-	rdb *redis.Client
+	rdb     *redis.Client
+	lockTTL time.Duration
 }
 
-func New(rdb *redis.Client) *Solver {
-	return &Solver{rdb: rdb}
+func New(rdb *redis.Client, lockTTL time.Duration) *Solver {
+	return &Solver{rdb: rdb, lockTTL: lockTTL}
 }
 
-func (s *Solver) Trigger(ctx context.Context, targetURL string) {
+func solvingKey(domain string) string {
+	return "solving:" + domain
+}
+
+func (s *Solver) Trigger(ctx context.Context, targetURL, domain string, force bool) int {
 	id := newJobID()
+	key := solvingKey(domain)
+
+	if force {
+		s.rdb.Set(ctx, key, id, s.lockTTL)
+	} else {
+		ok, err := s.rdb.SetNX(ctx, key, id, s.lockTTL).Result()
+		if err != nil {
+			log.Error().Err(err).Str("domain", domain).Msg("failed to acquire solve lock")
+			return int(s.lockTTL.Seconds())
+		}
+		if !ok {
+			remaining, _ := s.rdb.TTL(ctx, key).Result()
+			log.Info().Str("domain", domain).Msg("solve already in progress, skipping")
+			if remaining > 0 {
+				return int(remaining.Seconds())
+			}
+			return int(s.lockTTL.Seconds())
+		}
+	}
+
 	payload, _ := json.Marshal(job{ID: id, URL: targetURL})
 
 	if err := s.rdb.LPush(ctx, "queue:solve", payload).Err(); err != nil {
 		log.Error().Err(err).Msg("failed to push solve job")
-		return
+		s.rdb.Del(ctx, key)
+		return int(s.lockTTL.Seconds())
 	}
 
 	log.Info().Str("id", id).Str("url", targetURL).Msg("solve job triggered")
+	return int(s.lockTTL.Seconds())
 }
 
 func newJobID() string {

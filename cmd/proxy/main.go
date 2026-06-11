@@ -42,7 +42,7 @@ func main() {
 
 	var slv *solver.Solver
 	if cfg.Solver.Enabled {
-		slv = solver.New(rdb)
+		slv = solver.New(rdb, cfg.Solver.Timeout)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
