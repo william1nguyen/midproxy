@@ -12,14 +12,14 @@ import (
 	"time"
 )
 
-type certStore struct {
-	ca    *x509.Certificate
+type CertStore struct {
+	CA    *x509.Certificate
 	caKey *ecdsa.PrivateKey
 	mu    sync.RWMutex
 	cache map[string]*tls.Certificate
 }
 
-func newCertStore() (*certStore, error) {
+func NewCertStore() (*CertStore, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
@@ -45,10 +45,10 @@ func newCertStore() (*certStore, error) {
 		return nil, err
 	}
 
-	return &certStore{ca: ca, caKey: key, cache: make(map[string]*tls.Certificate)}, nil
+	return &CertStore{CA: ca, caKey: key, cache: make(map[string]*tls.Certificate)}, nil
 }
 
-func (cs *certStore) get(host string) (*tls.Certificate, error) {
+func (cs *CertStore) Get(host string) (*tls.Certificate, error) {
 	cs.mu.RLock()
 	if c, ok := cs.cache[host]; ok {
 		cs.mu.RUnlock()
@@ -78,7 +78,7 @@ func (cs *certStore) get(host string) (*tls.Certificate, error) {
 		DNSNames:     []string{host},
 	}
 
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, cs.ca, &key.PublicKey, cs.caKey)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, cs.CA, &key.PublicKey, cs.caKey)
 	if err != nil {
 		return nil, err
 	}

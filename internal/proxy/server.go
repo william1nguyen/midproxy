@@ -23,7 +23,7 @@ type Server struct {
 	store   *store.Store
 	solver  *solver.Solver
 	cache   bool
-	certs   *certStore
+	certs   *CertStore
 }
 
 type ServerConfig struct {
@@ -36,7 +36,7 @@ type ServerConfig struct {
 }
 
 func NewServer(cfg ServerConfig) *Server {
-	certs, err := newCertStore()
+	certs, err := NewCertStore()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create cert store")
 	}
@@ -191,7 +191,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	cert, err := s.certs.get(host)
+	cert, err := s.certs.Get(host)
 	if err != nil {
 		log.Error().Err(err).Str("host", host).Msg("cert generation failed")
 		return
