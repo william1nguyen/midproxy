@@ -6,6 +6,10 @@
 	run \
 	dev \
 	test \
+	test-integration \
+	test-solver \
+	test-all \
+	test-race \
 	solver \
 	solver-dev
 
@@ -36,8 +40,13 @@ run: build
 dev:
 	go run $(CMD)
 
-test:
-	go test ./... -v
+test-proxy:
+	gotestsum --format testdox -- ./... -race -cover
+
+test-solver:
+	cd $(SOLVER_DIR) && pnpm test
+
+test: test-proxy test-solver
 
 # SOLVER
 SOLVER_DIR = ./solver
@@ -56,7 +65,11 @@ help:
 	@echo "  make build      - Build proxy binary"
 	@echo "  make run         - Build and run proxy"
 	@echo "  make dev         - Run proxy with go run"
-	@echo "  make test        - Run tests"
+	@echo "  make test             - Run unit tests"
+	@echo "  make test-integration - Run integration tests (needs Docker)"
+	@echo "  make test-solver      - Run solver JS tests"
+	@echo "  make test-all         - Run unit + solver tests"
+	@echo "  make test-race        - Run tests with race detector"
 	@echo ""
 	@echo "Solver:"
 	@echo "  make solver      - Start solver service (headless)"
