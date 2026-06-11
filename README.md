@@ -1,6 +1,6 @@
 # Midproxy
 
-An HTTP/HTTPS middleman proxy that detects and solves Cloudflare challenges automatically.
+HTTP/HTTPS middleman proxy that automatically detects and solves Cloudflare challenges using browser automation.
 
 ## Architecture
 
@@ -14,44 +14,62 @@ An HTTP/HTTPS middleman proxy that detects and solves Cloudflare challenges auto
   <img src="docs/request-flow.svg" alt="Request Flow" width="100%"/>
 </p>
 
-## Features
+## System Design
 
-- Automatic Cloudflare challenge detection and solving
-- HTTPS interception via MITM with dynamic certificate generation
-- Upstream proxy pool with round-robin and auto-cooldown on failures
-- Per-domain rate limiting
-- Response caching (GET 200)
-- Browser pool with multiple instances, tab reuse, and idle cleanup (default: 3 browsers × 3 tabs = 9 concurrent solves)
-- Solve job deduplication per domain with Redis lock (`solving:{domain}`)
-- Dynamic `Retry-After` header based on remaining solve time
-- Stale job detection — solver skips outdated jobs when cookies are re-solved
+### Proxy (Go)
 
-## Prerequisites
+- **MITM interception** — dynamically generates TLS certificates per host to inspect HTTPS traffic
+- **Upstream proxy pool** — round-robin selection with circuit breaker (CLOSED → OPEN → HALF_OPEN) per proxy
+- **Retry with backoff** — failed requests auto-retry with exponential backoff and alternate proxies; CF challenges with stale cookies retry before re-solving
+- **Rate limiting** — per-domain sliding window using Redis counters
+- **Response caching** — GET 200 responses cached in Redis with configurable TTL
 
-- Go 1.26+
-- Node.js 22+ & pnpm
-- Docker
+### Solver (TypeScript)
+
+- **Browser pool** — manages multiple Chrome instances with tab reuse and idle cleanup
+- **Cloudflare bypass** — uses Puppeteer to load pages and extract `cf_clearance` cookies
+- **Redis Streams** — consumer group pattern (`XREADGROUP`/`XACK`) for reliable job processing, scalable to multiple workers
+- **Dead letter queue** — failed jobs retry N times, then move to `queue:dead` for inspection
+
+### Communication
+
+```
+Go Proxy ──XADD──→ Redis Stream (stream:solve) ──XREADGROUP──→ TS Solver
+                          ↑                                          │
+                          └── cookies:{domain} ←── LPUSH ────────────┘
+```
+
+- **Job deduplication** — `SET NX solving:{domain}` prevents duplicate solves; lock value = job ID for stale detection
+- **Dynamic Retry-After** — reads remaining TTL from solve lock, client knows exactly when to retry
+
+## Tech Stack
+
+| Component | Stack |
+| --- | --- |
+| Proxy | Go, [tls-client](https://github.com/bogdanfinn/tls-client), zerolog |
+| Solver | TypeScript, [puppeteer-real-browser](https://github.com/nicefeel/puppeteer-real-browser), pino, tsup |
+| Queue | Redis Streams (consumer groups) |
+| Infra | Valkey/Redis, Docker Compose |
 
 ## Quick Start
 
-### Docker (recommended)
-
 ```bash
 cp configs/config.example.yaml configs/config.yaml
-cp solver/.env.example solver/.env          # configure proxies & redis
+cp solver/.env.example solver/.env
 docker compose -p midproxy up -d
-curl -k -x http://localhost:8080 https://2captcha.com/demo/cloudflare-turnstile-challenge
+curl -k -x http://localhost:8080 https://example.com
 ```
 
-### Local development
+<details>
+<summary><b>Local development</b></summary>
 
 ```bash
-cp configs/config.example.yaml configs/config.yaml
-make docker-up                               # start redis
-make dev                                     # start proxy
-make solver-dev                              # start solver (new terminal)
-curl -k -x http://localhost:8080 https://2captcha.com/demo/cloudflare-turnstile-challenge
+make docker-up        # start redis
+make dev              # start proxy
+make solver-dev       # start solver (new terminal)
 ```
+
+</details>
 
 ## Configuration
 
@@ -62,16 +80,30 @@ curl -k -x http://localhost:8080 https://2captcha.com/demo/cloudflare-turnstile-
 port: 8080
 proxies:
   - http://user:pass@proxy1:8080
+
 solver:
   enabled: true
   timeout: 180s
+
 redis:
   address: localhost:6379
   password: ""
   db: 0
+
+fetch:
+  timeout: 30s
+  max_retries: 3
+  retry_base_delay: 1s
+  retry_max_delay: 8s
+
+circuit:
+  failure_threshold: 5
+  reset_timeout: 30s
+
 cache:
   enabled: true
   ttl: 5m
+
 rate_limit:
   max_rps: 5
 ```
@@ -88,49 +120,14 @@ rate_limit:
 | `HEADLESS` | `false` | Run browser in headless mode |
 | `MAX_BROWSERS` | `3` | Max browser instances |
 | `MAX_TABS` | `3` | Max tabs per browser |
-| `IDLE_TIMEOUT` | `300000` | Close idle browsers (ms) |
-| `CLEARANCE_TIMEOUT` | `30000` | Wait for cf_clearance (ms) |
-| `NAVIGATION_TIMEOUT` | `60000` | Page load timeout (ms) |
+| `MAX_JOB_RETRIES` | `3` | Retries before dead letter queue |
 
 </details>
 
 ## Development
 
-### Lint
-
 ```bash
-make lint            # run all linters (golangci-lint + biome)
-make lint-proxy      # go only
-make lint-solver     # solver only
+make lint             # golangci-lint + biome
+make test             # go tests + vitest
+lefthook install      # pre-commit: lint, pre-push: tests
 ```
-
-### Test
-
-```bash
-make test            # unit + solver tests
-make test-proxy      # go tests with race detector + coverage
-make test-solver     # solver vitest
-```
-
-### Pre-commit hooks
-
-Managed by [Lefthook](https://github.com/evilmartians/lefthook). Install with `lefthook install`.
-
-- **pre-commit**: lint + format (only for changed files)
-- **pre-push**: unit tests
-
-### Build
-
-```bash
-make build                    # go binary → bin/proxy
-cd solver && pnpm build       # tsup bundle → dist/index.js
-```
-
-## Tech Stack
-
-| Component | Stack |
-| --- | --- |
-| Proxy | Go, [tls-client](https://github.com/bogdanfinn/tls-client), zerolog |
-| Solver | TypeScript, [puppeteer-real-browser](https://github.com/nicefeel/puppeteer-real-browser), pino, tsup |
-| Lint | golangci-lint, [Biome](https://biomejs.dev) |
-| Infra | Valkey/Redis, Docker Compose |
