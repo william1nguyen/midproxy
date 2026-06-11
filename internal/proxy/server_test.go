@@ -38,8 +38,8 @@ func setup(t *testing.T, handler http.HandlerFunc) *testEnv {
 	st := store.New(rdb, 30*time.Second, 5)
 	slv := solver.New(rdb, 30*time.Second)
 
-	srv := proxy.NewServer(proxy.ServerConfig{
-		Manager:      proxy.NewManager(nil),
+	srv := proxy.NewServer(&proxy.ServerConfig{
+		Manager:      proxy.NewManager(nil, 5, 30*time.Second),
 		FetchClient:  fetch.NewClient(10 * time.Second),
 		Store:        st,
 		Solver:       slv,

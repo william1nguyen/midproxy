@@ -47,13 +47,16 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
-	srv := proxy.NewServer(proxy.ServerConfig{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Manager:      proxy.NewManager(cfg.Proxies),
-		FetchClient:  fetch.NewClient(cfg.Fetch.Timeout),
-		Store:        store.New(rdb, cfg.Cache.TTL, cfg.RateLimit.MaxRPS),
-		Solver:       slv,
-		CacheEnabled: cfg.Cache.Enabled,
+	srv := proxy.NewServer(&proxy.ServerConfig{
+		Addr:           fmt.Sprintf(":%d", cfg.Port),
+		Manager:        proxy.NewManager(cfg.Proxies, cfg.Circuit.FailureThreshold, cfg.Circuit.ResetTimeout),
+		FetchClient:    fetch.NewClient(cfg.Fetch.Timeout),
+		Store:          store.New(rdb, cfg.Cache.TTL, cfg.RateLimit.MaxRPS),
+		Solver:         slv,
+		CacheEnabled:   cfg.Cache.Enabled,
+		MaxRetries:     cfg.Fetch.MaxRetries,
+		RetryBaseDelay: cfg.Fetch.RetryBaseDelay,
+		RetryMaxDelay:  cfg.Fetch.RetryMaxDelay,
 	})
 
 	if err := srv.ListenAndServe(ctx); err != nil && ctx.Err() == nil {

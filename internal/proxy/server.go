@@ -17,37 +17,58 @@ import (
 )
 
 type Server struct {
-	addr    string
-	manager *Manager
-	fetch   *fetch.Client
-	store   *store.Store
-	solver  *solver.Solver
-	cache   bool
-	certs   *CertStore
+	addr           string
+	manager        *Manager
+	fetch          *fetch.Client
+	store          *store.Store
+	solver         *solver.Solver
+	cache          bool
+	certs          *CertStore
+	maxRetries     int
+	retryBaseDelay time.Duration
+	retryMaxDelay  time.Duration
 }
 
 type ServerConfig struct {
-	Addr         string
-	Manager      *Manager
-	FetchClient  *fetch.Client
-	Store        *store.Store
-	Solver       *solver.Solver
-	CacheEnabled bool
+	Addr           string
+	Manager        *Manager
+	FetchClient    *fetch.Client
+	Store          *store.Store
+	Solver         *solver.Solver
+	CacheEnabled   bool
+	MaxRetries     int
+	RetryBaseDelay time.Duration
+	RetryMaxDelay  time.Duration
 }
 
-func NewServer(cfg ServerConfig) *Server {
+func NewServer(cfg *ServerConfig) *Server {
 	certs, err := NewCertStore()
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create cert store")
 	}
+	maxRetries := cfg.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3
+	}
+	baseDelay := cfg.RetryBaseDelay
+	if baseDelay <= 0 {
+		baseDelay = 1 * time.Second
+	}
+	maxDelay := cfg.RetryMaxDelay
+	if maxDelay <= 0 {
+		maxDelay = 8 * time.Second
+	}
 	return &Server{
-		addr:    cfg.Addr,
-		manager: cfg.Manager,
-		fetch:   cfg.FetchClient,
-		store:   cfg.Store,
-		solver:  cfg.Solver,
-		cache:   cfg.CacheEnabled,
-		certs:   certs,
+		addr:           cfg.Addr,
+		manager:        cfg.Manager,
+		fetch:          cfg.FetchClient,
+		store:          cfg.Store,
+		solver:         cfg.Solver,
+		cache:          cfg.CacheEnabled,
+		certs:          certs,
+		maxRetries:     maxRetries,
+		retryBaseDelay: baseDelay,
+		retryMaxDelay:  maxDelay,
 	}
 }
 
@@ -77,6 +98,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handleHTTP(w, r)
+}
+
+func (s *Server) backoff(attempt int) time.Duration {
+	delay := s.retryBaseDelay << uint(attempt)
+	if delay > s.retryMaxDelay {
+		delay = s.retryMaxDelay
+	}
+	return delay
 }
 
 func (s *Server) resolveProxy(ctx context.Context, domain string) (*store.SolveResult, string) {
@@ -113,6 +142,14 @@ func (s *Server) cacheSet(ctx context.Context, method, url string, resp *fetch.R
 	}
 }
 
+func (s *Server) triggerSolve(ctx context.Context, targetURL, domain string, solve *store.SolveResult) int {
+	force := solve != nil
+	if force {
+		s.store.InvalidateSolveResult(ctx, domain)
+	}
+	return s.solver.Trigger(ctx, targetURL, domain, force)
+}
+
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
@@ -136,40 +173,48 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	solve, proxyURL := s.resolveProxy(ctx, domain)
-	logForward(r.URL.String(), proxyURL, solve)
+	for attempt := range s.maxRetries {
+		solve, proxyURL := s.resolveProxy(ctx, domain)
+		logForward(r.URL.String(), proxyURL, solve)
 
-	resp, err := s.fetch.Forward(ctx, r, proxyURL, solve)
-	if err != nil {
-		log.Error().Err(err).Str("url", r.URL.String()).Msg("fetch failed")
-		http.Error(w, "bad gateway", http.StatusBadGateway)
-		s.manager.RecordFailure(proxyURL)
+		resp, err := s.fetch.Forward(ctx, r, proxyURL, solve)
+		if err != nil {
+			log.Error().Err(err).Str("url", r.URL.String()).Int("attempt", attempt+1).Msg("fetch failed")
+			s.manager.RecordFailure(proxyURL)
+			if attempt < s.maxRetries-1 {
+				time.Sleep(s.backoff(attempt))
+				continue
+			}
+			http.Error(w, "bad gateway", http.StatusBadGateway)
+			return
+		}
+		s.manager.RecordSuccess(proxyURL)
+		log.Info().Str("url", r.URL.String()).Int("status", resp.StatusCode).Int("body", len(resp.Body)).Msg("fetch result")
+
+		if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
+			if solve != nil && attempt < s.maxRetries-1 {
+				log.Info().Str("url", r.URL.String()).Int("attempt", attempt+1).Msg("CF challenge with cookies, retrying")
+				time.Sleep(s.backoff(attempt))
+				continue
+			}
+			log.Info().Str("url", r.URL.String()).Msg("CF challenge detected, triggering solver")
+			retryAfter := s.triggerSolve(ctx, r.URL.String(), domain, solve)
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
+			http.Error(w, "solving challenge", http.StatusServiceUnavailable)
+			return
+		}
+
+		s.cacheSet(ctx, r.Method, r.URL.String(), resp)
+
+		for k, vv := range resp.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		w.Write(resp.Body)
 		return
 	}
-	s.manager.RecordSuccess(proxyURL)
-	log.Info().Str("url", r.URL.String()).Int("status", resp.StatusCode).Int("body", len(resp.Body)).Msg("fetch result")
-
-	if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
-		log.Info().Str("url", r.URL.String()).Msg("CF challenge detected, triggering solver")
-		force := solve != nil
-		if force {
-			s.store.InvalidateSolveResult(ctx, domain)
-		}
-		retryAfter := s.solver.Trigger(ctx, r.URL.String(), domain, force)
-		w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
-		http.Error(w, "solving challenge", http.StatusServiceUnavailable)
-		return
-	}
-
-	s.cacheSet(ctx, r.Method, r.URL.String(), resp)
-
-	for k, vv := range resp.Header {
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-	w.Write(resp.Body)
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
@@ -224,41 +269,70 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		solve, proxyURL := s.resolveProxy(ctx, host)
+		result := s.forwardWithRetry(ctx, req, host)
+		req.Body.Close()
+
+		if result.err != nil {
+			tlsConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+			cancel()
+			break
+		}
+
+		if result.solving {
+			fmt.Fprintf(tlsConn, "HTTP/1.1 503 Service Unavailable\r\nRetry-After: %d\r\n\r\nsolving challenge\n", result.retryAfter)
+			cancel()
+			break
+		}
+
+		result.resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(result.resp.Body)))
+		result.resp.Header.Del("Transfer-Encoding")
+
+		s.cacheSet(ctx, req.Method, req.URL.String(), result.resp)
+
+		writeRawResponse(tlsConn, result.resp.StatusCode, result.resp.Header, result.resp.Body)
+		cancel()
+	}
+}
+
+type forwardResult struct {
+	resp       *fetch.Response
+	err        error
+	solving    bool
+	retryAfter int
+}
+
+func (s *Server) forwardWithRetry(ctx context.Context, req *http.Request, domain string) forwardResult {
+	for attempt := range s.maxRetries {
+		solve, proxyURL := s.resolveProxy(ctx, domain)
 		logForward(req.URL.String(), proxyURL, solve)
 
 		resp, err := s.fetch.Forward(ctx, req, proxyURL, solve)
-		req.Body.Close()
 		if err != nil {
-			log.Error().Err(err).Str("url", req.URL.String()).Msg("fetch failed")
-			tlsConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+			log.Error().Err(err).Str("url", req.URL.String()).Int("attempt", attempt+1).Msg("fetch failed")
 			s.manager.RecordFailure(proxyURL)
-			cancel()
-			break
+			if attempt < s.maxRetries-1 {
+				time.Sleep(s.backoff(attempt))
+				continue
+			}
+			return forwardResult{err: err}
 		}
 		s.manager.RecordSuccess(proxyURL)
 		log.Info().Str("url", req.URL.String()).Int("status", resp.StatusCode).Int("body", len(resp.Body)).Msg("fetch result")
 
 		if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
-			log.Info().Str("url", req.URL.String()).Msg("CF challenge detected, triggering solver")
-			force := solve != nil
-			if force {
-				s.store.InvalidateSolveResult(ctx, host)
+			if solve != nil && attempt < s.maxRetries-1 {
+				log.Info().Str("url", req.URL.String()).Int("attempt", attempt+1).Msg("CF challenge with cookies, retrying")
+				time.Sleep(s.backoff(attempt))
+				continue
 			}
-			retryAfter := s.solver.Trigger(ctx, req.URL.String(), host, force)
-			fmt.Fprintf(tlsConn, "HTTP/1.1 503 Service Unavailable\r\nRetry-After: %d\r\n\r\nsolving challenge\n", retryAfter)
-			cancel()
-			break
+			log.Info().Str("url", req.URL.String()).Msg("CF challenge detected, triggering solver")
+			retryAfter := s.triggerSolve(ctx, req.URL.String(), domain, solve)
+			return forwardResult{solving: true, retryAfter: retryAfter}
 		}
 
-		resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(resp.Body)))
-		resp.Header.Del("Transfer-Encoding")
-
-		s.cacheSet(ctx, req.Method, req.URL.String(), resp)
-
-		writeRawResponse(tlsConn, resp.StatusCode, resp.Header, resp.Body)
-		cancel()
+		return forwardResult{resp: resp}
 	}
+	return forwardResult{err: fmt.Errorf("max retries exceeded")}
 }
 
 func writeRawResponse(w io.Writer, statusCode int, header http.Header, body []byte) {
