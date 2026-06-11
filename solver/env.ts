@@ -16,8 +16,9 @@ const env: EnvConfig = {
     navigationTimeout: parseInt(process.env.NAVIGATION_TIMEOUT || "60000", 10),
   },
   queue: {
-    jobQueue: "queue:solve",
+    deadQueue: "queue:dead",
     cookieTTL: 1200,
+    maxJobRetries: parseInt(process.env.MAX_JOB_RETRIES || "3", 10),
   },
   proxies: (process.env.PROXY_LIST || "").split(",").filter(Boolean),
 };

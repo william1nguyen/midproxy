@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { StreamJob } from "../src/redis";
 import type { Job, SolveResult } from "../src/types";
 
 let redisMock: {
+  ensureConsumerGroup: ReturnType<typeof vi.fn>;
+  readJob: ReturnType<typeof vi.fn>;
+  ackJob: ReturnType<typeof vi.fn>;
   storeCookies: ReturnType<typeof vi.fn>;
-  popJob: ReturnType<typeof vi.fn>;
   isActiveJob: ReturnType<typeof vi.fn>;
+  incrementRetry: ReturnType<typeof vi.fn>;
+  requeueJob: ReturnType<typeof vi.fn>;
+  pushDeadLetter: ReturnType<typeof vi.fn>;
   shutdown: ReturnType<typeof vi.fn>;
 };
 
@@ -18,14 +24,29 @@ let poolMock: {
 };
 
 vi.mock("../src/redis", () => ({
+  get ensureConsumerGroup() {
+    return redisMock.ensureConsumerGroup;
+  },
+  get readJob() {
+    return redisMock.readJob;
+  },
+  get ackJob() {
+    return redisMock.ackJob;
+  },
   get storeCookies() {
     return redisMock.storeCookies;
   },
-  get popJob() {
-    return redisMock.popJob;
-  },
   get isActiveJob() {
     return redisMock.isActiveJob;
+  },
+  get incrementRetry() {
+    return redisMock.incrementRetry;
+  },
+  get requeueJob() {
+    return redisMock.requeueJob;
+  },
+  get pushDeadLetter() {
+    return redisMock.pushDeadLetter;
   },
   get shutdown() {
     return redisMock.shutdown;
@@ -47,6 +68,12 @@ vi.mock("../src/pool", () => ({
   },
 }));
 
+vi.mock("../env", () => ({
+  default: {
+    queue: { deadQueue: "queue:dead", cookieTTL: 1200, maxJobRetries: 3 },
+  },
+}));
+
 vi.mock("../src/logger", () => ({
   default: {
     info: vi.fn(),
@@ -64,18 +91,31 @@ vi.mock("../src/logger", () => ({
 
 const nextTick = () => new Promise<void>((r) => setTimeout(r, 0));
 
+const makeStreamJob = (job: Job): StreamJob => ({
+  messageId: "1234567890-0",
+  job,
+});
+
 describe("worker", () => {
   let worker: typeof import("../src/worker");
 
   beforeEach(async () => {
     vi.resetModules();
 
+    const defaultJob: StreamJob = makeStreamJob({
+      id: "j1",
+      url: "http://test.com",
+    });
+
     redisMock = {
+      ensureConsumerGroup: vi.fn(async () => {}),
+      readJob: vi.fn(async (): Promise<StreamJob> => defaultJob),
+      ackJob: vi.fn(async () => {}),
       storeCookies: vi.fn(async () => {}),
-      popJob: vi.fn(
-        async (): Promise<Job> => ({ id: "j1", url: "http://test.com" }),
-      ),
       isActiveJob: vi.fn(async () => true),
+      incrementRetry: vi.fn(async () => 1),
+      requeueJob: vi.fn(async () => {}),
+      pushDeadLetter: vi.fn(async () => {}),
       shutdown: vi.fn(async () => {}),
     };
 
@@ -105,6 +145,7 @@ describe("worker", () => {
     await nextTick();
 
     expect(solverMock.solve).toHaveBeenCalledWith("http://test.com");
+    expect(redisMock.ackJob).toHaveBeenCalledWith("1234567890-0");
     expect(redisMock.storeCookies).toHaveBeenCalledWith(
       "test.com",
       expect.objectContaining({ cookies: expect.any(Array) }),
@@ -120,7 +161,8 @@ describe("worker", () => {
     await nextTick();
 
     expect(solverMock.solve).toHaveBeenCalled();
-    expect(redisMock.storeCookies).not.toHaveBeenCalled();
+    expect(redisMock.ackJob).toHaveBeenCalled();
+    expect(redisMock.incrementRetry).toHaveBeenCalled();
   });
 
   it("stops on shutdown immediately", async () => {
@@ -128,7 +170,7 @@ describe("worker", () => {
 
     await worker.run();
 
-    expect(redisMock.popJob).not.toHaveBeenCalled();
+    expect(redisMock.readJob).not.toHaveBeenCalled();
   });
 
   it("skips stale job", async () => {
@@ -138,6 +180,7 @@ describe("worker", () => {
     await nextTick();
 
     expect(redisMock.isActiveJob).toHaveBeenCalled();
+    expect(redisMock.ackJob).toHaveBeenCalled();
     expect(solverMock.solve).not.toHaveBeenCalled();
   });
 });

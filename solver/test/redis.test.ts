@@ -55,14 +55,25 @@ describe("redis operations", () => {
     expect(len).toBe(3);
   });
 
-  it("popJob returns pushed job", async () => {
+  it("readJob returns stream message", async () => {
     const rdb = getClient();
-    const job = JSON.stringify({ id: "test-123", url: "http://example.com" });
-    await rdb.lpush("queue:solve", job);
+    await redisModule.ensureConsumerGroup();
+    await rdb.xadd(
+      "stream:solve",
+      "*",
+      "id",
+      "test-123",
+      "url",
+      "http://example.com",
+    );
 
-    const result = await redisModule.popJob();
-    expect(result.id).toBe("test-123");
-    expect(result.url).toBe("http://example.com");
+    const msg = await redisModule.readJob();
+    expect(msg).not.toBeNull();
+    expect(msg!.job.id).toBe("test-123");
+    expect(msg!.job.url).toBe("http://example.com");
+    expect(msg!.messageId).toBeTruthy();
+
+    await redisModule.ackJob(msg!.messageId);
   });
 
   it("isActiveJob matches current lock", async () => {

@@ -42,8 +42,9 @@ export interface EnvConfig {
     navigationTimeout: number;
   };
   queue: {
-    jobQueue: string;
+    deadQueue: string;
     cookieTTL: number;
+    maxJobRetries: number;
   };
   proxies: string[];
 }
