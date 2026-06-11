@@ -6,7 +6,7 @@ const env: EnvConfig = {
     url: process.env.REDIS_URL || "redis://:redis@localhost:6379/1",
   },
   browser: {
-    headless: false,
+    headless: process.env.HEADLESS === "true",
     maxBrowsers: parseInt(process.env.MAX_BROWSERS || "3", 10),
     maxTabs: parseInt(process.env.MAX_TABS || "3", 10),
     idleTimeout: parseInt(process.env.IDLE_TIMEOUT || "300000", 10),

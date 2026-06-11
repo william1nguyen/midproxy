@@ -32,6 +32,7 @@ const launchBrowser = async (proxy: string) => {
   const opts: Record<string, unknown> = {
     headless: env.browser.headless,
     turnstile: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
   };
   const parsed = parseProxy(proxy);
   if (parsed) opts.proxy = parsed;
