@@ -1,22 +1,38 @@
 import { connect } from "puppeteer-real-browser";
-import env from "../env.js";
-import logger from "./logger.js";
+import env from "../env";
+import logger from "./logger";
+import type { AcquireResult, BrowserEntry } from "./types";
 
-const entries = new Map();
-const waiters = [];
+const entries = new Map<number, BrowserEntry>();
+const waiters: Array<(result: AcquireResult | null) => void> = [];
 let nextId = 0;
 let launching = 0;
 let shuttingDown = false;
-let idleTimer;
+let idleTimer: ReturnType<typeof setInterval> | undefined;
 
-const parseProxy = (proxyURL) => {
+interface ProxyConfig {
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+}
+
+const parseProxy = (proxyURL: string): ProxyConfig | undefined => {
   if (!proxyURL) return undefined;
   const u = new URL(proxyURL);
-  return { host: u.hostname, port: u.port, username: u.username, password: u.password };
+  return {
+    host: u.hostname,
+    port: u.port,
+    username: u.username,
+    password: u.password,
+  };
 };
 
-const launchBrowser = async (proxy) => {
-  const opts = { headless: env.browser.headless, turnstile: true };
+const launchBrowser = async (proxy: string) => {
+  const opts: Record<string, unknown> = {
+    headless: env.browser.headless,
+    turnstile: true,
+  };
   const parsed = parseProxy(proxy);
   if (parsed) opts.proxy = parsed;
   const { browser } = await connect(opts);
@@ -25,15 +41,15 @@ const launchBrowser = async (proxy) => {
 
 let proxyIndex = 0;
 
-const pickProxy = () => {
+const pickProxy = (): string => {
   if (env.proxies.length === 0) return "";
   const proxy = env.proxies[proxyIndex % env.proxies.length];
   proxyIndex++;
   return proxy;
 };
 
-const findAvailable = () => {
-  let best = null;
+const findAvailable = (): BrowserEntry | null => {
+  let best: BrowserEntry | null = null;
   for (const entry of entries.values()) {
     if (entry.tabs < env.browser.maxTabs) {
       if (!best || entry.tabs < best.tabs) best = entry;
@@ -42,9 +58,9 @@ const findAvailable = () => {
   return best;
 };
 
-const drainWaiter = async (entry) => {
+const drainWaiter = async (entry: BrowserEntry): Promise<void> => {
   if (waiters.length === 0 || entry.tabs >= env.browser.maxTabs) return;
-  const resolve = waiters.shift();
+  const resolve = waiters.shift()!;
   entry.tabs++;
   entry.lastUsed = Date.now();
   try {
@@ -52,12 +68,15 @@ const drainWaiter = async (entry) => {
     resolve({ entry, page });
   } catch (err) {
     entry.tabs--;
-    logger.error({ err: err.message, id: entry.id }, "failed to create page for waiter");
+    logger.error(
+      { err: (err as Error).message, id: entry.id },
+      "failed to create page for waiter",
+    );
     resolve(null);
   }
 };
 
-export const acquire = async () => {
+export const acquire = async (): Promise<AcquireResult | null> => {
   let entry = findAvailable();
   if (entry) {
     entry.tabs++;
@@ -69,7 +88,7 @@ export const acquire = async () => {
   if (entries.size + launching < env.browser.maxBrowsers) {
     const proxy = pickProxy();
     launching++;
-    let browser;
+    let browser: any;
     try {
       browser = await launchBrowser(proxy);
     } catch (err) {
@@ -84,25 +103,29 @@ export const acquire = async () => {
     logger.info({ id, proxy: proxy || "direct" }, "browser launched");
 
     browser.on("disconnected", () => {
-      logger.warn({ id, proxy: entry.proxy }, "browser disconnected");
+      logger.warn({ id, proxy: entry!.proxy }, "browser disconnected");
       entries.delete(id);
     });
 
-    const page = (await browser.pages())[0] || (await browser.newPage());
+    const pages = await browser.pages();
+    const page = pages[0] || (await browser.newPage());
     return { entry, page };
   }
 
-  return new Promise((resolve) => waiters.push(resolve));
+  return new Promise<AcquireResult | null>((resolve) => waiters.push(resolve));
 };
 
-export const release = async (entry, page) => {
+export const release = async (
+  entry: BrowserEntry,
+  page: any,
+): Promise<void> => {
   await page.close().catch(() => {});
   entry.tabs--;
   entry.lastUsed = Date.now();
   drainWaiter(entry);
 };
 
-const cleanupIdle = () => {
+const cleanupIdle = (): void => {
   const now = Date.now();
   for (const [id, entry] of entries) {
     if (entry.tabs === 0 && now - entry.lastUsed > env.browser.idleTimeout) {
@@ -113,22 +136,34 @@ const cleanupIdle = () => {
   }
 };
 
-export const startIdleCleanup = () => {
+export const startIdleCleanup = (): void => {
   idleTimer = setInterval(cleanupIdle, 30000);
   idleTimer.unref();
 };
 
-export const stats = () => ({
+interface PoolStats {
+  browsers: number;
+  launching: number;
+  maxBrowsers: number;
+  queued: number;
+  entries: Array<{ id: number; proxy: string; tabs: number }>;
+}
+
+export const stats = (): PoolStats => ({
   browsers: entries.size,
   launching,
   maxBrowsers: env.browser.maxBrowsers,
   queued: waiters.length,
-  entries: [...entries.values()].map((e) => ({ id: e.id, proxy: e.proxy, tabs: e.tabs })),
+  entries: [...entries.values()].map((e) => ({
+    id: e.id,
+    proxy: e.proxy,
+    tabs: e.tabs,
+  })),
 });
 
-export const isShuttingDown = () => shuttingDown;
+export const isShuttingDown = (): boolean => shuttingDown;
 
-export const shutdown = async () => {
+export const shutdown = async (): Promise<void> => {
   shuttingDown = true;
   if (idleTimer) clearInterval(idleTimer);
   for (const resolve of waiters) resolve(null);

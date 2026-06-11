@@ -1,8 +1,9 @@
-import { acquire, release } from "./pool.js";
-import env from "../env.js";
-import logger from "./logger.js";
+import env from "../env";
+import logger from "./logger";
+import { acquire, release } from "./pool";
+import type { SolveResult } from "./types";
 
-export const solve = async (targetURL) => {
+export const solve = async (targetURL: string): Promise<SolveResult> => {
   const result = await acquire();
   if (!result) throw new Error("pool shutting down");
 
@@ -17,18 +18,21 @@ export const solve = async (targetURL) => {
     await new Promise((r) => setTimeout(r, 5000));
 
     const cookies = await waitForClearance(page);
-    const userAgent = await page.evaluate(() => navigator.userAgent);
+    const userAgent: string = await page.evaluate(() => navigator.userAgent);
 
-    logger.info({ cookies: cookies.length, proxy: entry.proxy }, "solve completed");
+    logger.info(
+      { cookies: cookies.length, proxy: entry.proxy },
+      "solve completed",
+    );
 
     return {
       userAgent,
       proxyURL: entry.proxy,
-      cookies: cookies.map((c) => ({
-        name: c.name,
-        value: c.value,
-        domain: c.domain,
-        path: c.path,
+      cookies: cookies.map((c: any) => ({
+        name: c.name as string,
+        value: c.value as string,
+        domain: c.domain as string,
+        path: c.path as string,
       })),
     };
   } finally {
@@ -36,10 +40,10 @@ export const solve = async (targetURL) => {
   }
 };
 
-const waitForClearance = async (page) => {
+const waitForClearance = async (page: any): Promise<any[]> => {
   const deadline = Date.now() + env.solver.clearanceTimeout;
 
-  const navigationPromise = new Promise((resolve) => {
+  const navigationPromise = new Promise<void>((resolve) => {
     const handler = () => {
       page.off("framenavigated", handler);
       resolve();
@@ -49,7 +53,7 @@ const waitForClearance = async (page) => {
 
   while (Date.now() < deadline) {
     const cookies = await page.cookies();
-    const cf = cookies.find((c) => c.name === "cf_clearance");
+    const cf = cookies.find((c: any) => c.name === "cf_clearance");
 
     if (cf) {
       logger.debug({ count: cookies.length }, "cf_clearance found");

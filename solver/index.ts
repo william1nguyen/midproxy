@@ -1,12 +1,12 @@
-import env from "./env.js";
-import logger from "./src/logger.js";
-import { shutdown as shutdownPool, startIdleCleanup } from "./src/pool.js";
-import { shutdown as shutdownRedis } from "./src/redis.js";
-import { run } from "./src/worker.js";
+import env from "./env";
+import logger from "./src/logger";
+import { shutdown as shutdownPool, startIdleCleanup } from "./src/pool";
+import { shutdown as shutdownRedis } from "./src/redis";
+import { run } from "./src/worker";
 
 let shuttingDown = false;
 
-const shutdown = async () => {
+const shutdown = async (): Promise<void> => {
   if (shuttingDown) return;
   shuttingDown = true;
 

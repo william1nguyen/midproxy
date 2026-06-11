@@ -1,6 +1,7 @@
 import "dotenv/config";
+import type { EnvConfig } from "./src/types";
 
-const env = {
+const env: EnvConfig = {
   redis: {
     url: process.env.REDIS_URL || "redis://:redis@localhost:6379/1",
   },
