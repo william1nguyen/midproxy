@@ -1,10 +1,14 @@
-import { GenericContainer } from "testcontainers";
 import Redis from "ioredis";
+import { GenericContainer, type StartedTestContainer } from "testcontainers";
 
-let container;
-let client;
+let container: StartedTestContainer | undefined;
+let client: Redis | undefined;
 
-export const setupRedis = async () => {
+export const setupRedis = async (): Promise<{
+  client: Redis;
+  host: string;
+  port: number;
+}> => {
   container = await new GenericContainer("redis:7-alpine")
     .withExposedPorts(6379)
     .start();
@@ -17,9 +21,9 @@ export const setupRedis = async () => {
   return { client, host, port };
 };
 
-export const teardownRedis = async () => {
+export const teardownRedis = async (): Promise<void> => {
   if (client) client.disconnect();
   if (container) await container.stop();
 };
 
-export const getClient = () => client;
+export const getClient = (): Redis => client!;

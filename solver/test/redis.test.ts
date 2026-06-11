@@ -1,15 +1,23 @@
-// solver/test/redis.test.js
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
-import { setupRedis, teardownRedis, getClient } from "./helpers/redis.js";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import type { SolveResult } from "../src/types";
+import { getClient, setupRedis, teardownRedis } from "./helpers/redis";
 
-let redisModule;
+let redisModule: typeof import("../src/redis");
 
 describe("redis operations", () => {
   beforeAll(async () => {
     const { host, port } = await setupRedis();
     process.env.REDIS_URL = `redis://${host}:${port}/0`;
     vi.resetModules();
-    redisModule = await import("../src/redis.js");
+    redisModule = await import("../src/redis");
   });
 
   afterAll(async () => {
@@ -22,7 +30,11 @@ describe("redis operations", () => {
   });
 
   it("storeCookies stores one item with TTL", async () => {
-    const result = { userAgent: "TestUA", cookies: [{ name: "cf", value: "abc" }], proxyURL: "" };
+    const result: SolveResult = {
+      userAgent: "TestUA",
+      cookies: [{ name: "cf", value: "abc", domain: "test.com", path: "/" }],
+      proxyURL: "",
+    };
     await redisModule.storeCookies("test.com", result);
 
     const rdb = getClient();
@@ -34,7 +46,7 @@ describe("redis operations", () => {
   });
 
   it("storeCookies multiple times appends", async () => {
-    const result = { userAgent: "UA", cookies: [], proxyURL: "" };
+    const result: SolveResult = { userAgent: "UA", cookies: [], proxyURL: "" };
     await redisModule.storeCookies("multi.com", result);
     await redisModule.storeCookies("multi.com", result);
     await redisModule.storeCookies("multi.com", result);
