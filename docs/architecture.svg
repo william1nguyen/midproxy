@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 640" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
   <defs>
     <filter id="shadow" x="-4%" y="-4%" width="108%" height="112%">
       <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.08"/>
@@ -12,179 +12,185 @@
     <marker id="arrow-amber" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <path d="M 0 0 L 10 3.5 L 0 7 z" fill="#fbbf24"/>
     </marker>
+    <marker id="arrow-red" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7 z" fill="#f87171"/>
+    </marker>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#f8fafc"/>
       <stop offset="100%" stop-color="#f1f5f9"/>
     </linearGradient>
   </defs>
 
-  <!-- Background -->
-  <rect width="960" height="640" rx="16" fill="url(#bg)" stroke="#e2e8f0" stroke-width="1"/>
-
-  <!-- Title -->
+  <rect width="960" height="680" rx="16" fill="url(#bg)" stroke="#e2e8f0" stroke-width="1"/>
   <text x="480" y="38" text-anchor="middle" font-size="15" font-weight="600" fill="#334155" letter-spacing="0.5">SYSTEM ARCHITECTURE</text>
 
-  <!-- ==================== ROW 1: CLIENT → PROXY → UPSTREAM → TARGET ==================== -->
+  <!-- ==================== ROW 1: CLIENT -> PROXY -> UPSTREAM -> TARGET ==================== -->
 
-  <!-- CLIENT -->
+  <!-- CLIENT (x=30..150, y=140..200) -->
   <g filter="url(#shadow)">
-    <rect x="40" y="185" width="120" height="60" rx="30" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-    <text x="100" y="212" text-anchor="middle" font-size="11" font-weight="600" fill="#64748b">CLIENT</text>
-    <text x="100" y="228" text-anchor="middle" font-size="9" fill="#94a3b8">HTTP / HTTPS</text>
+    <rect x="30" y="140" width="120" height="60" rx="30" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="90" y="167" text-anchor="middle" font-size="11" font-weight="600" fill="#64748b">CLIENT</text>
+    <text x="90" y="183" text-anchor="middle" font-size="9" fill="#94a3b8">HTTP / HTTPS</text>
   </g>
 
-  <!-- PROXY SERVER -->
+  <!-- PROXY SERVER (x=200..440, y=100..260) -->
   <g filter="url(#shadow)">
-    <rect x="250" y="155" width="190" height="120" rx="12" fill="#ffffff" stroke="#06b6d4" stroke-width="1.5"/>
-    <!-- Go badge -->
-    <rect x="262" y="165" width="36" height="18" rx="9" fill="#00ADD8"/>
-    <text x="280" y="177.5" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">Go</text>
-    <!-- Title -->
-    <text x="345" y="200" text-anchor="middle" font-size="14" font-weight="600" fill="#0e7490">Proxy Server</text>
-    <text x="345" y="220" text-anchor="middle" font-size="10" fill="#64748b">TLS Fingerprint · MITM</text>
-    <text x="345" y="236" text-anchor="middle" font-size="10" fill="#64748b">Cache · Rate Limit</text>
-    <text x="345" y="256" text-anchor="middle" font-size="10" fill="#94a3b8">:8080</text>
+    <rect x="200" y="100" width="240" height="160" rx="12" fill="#ffffff" stroke="#06b6d4" stroke-width="1.5"/>
+    <rect x="212" y="110" width="36" height="18" rx="9" fill="#00ADD8"/>
+    <text x="230" y="122.5" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">Go</text>
+    <text x="320" y="138" text-anchor="middle" font-size="14" font-weight="600" fill="#0e7490">Proxy Server</text>
+    <text x="320" y="158" text-anchor="middle" font-size="10" fill="#64748b">TLS Fingerprint . MITM</text>
+    <text x="320" y="174" text-anchor="middle" font-size="10" fill="#64748b">Cache . Rate Limit</text>
+    <text x="320" y="190" text-anchor="middle" font-size="10" fill="#64748b">Retry . Exponential Backoff</text>
+    <text x="320" y="206" text-anchor="middle" font-size="10" fill="#64748b">Solve Lock . Deduplication</text>
+    <text x="320" y="244" text-anchor="middle" font-size="10" fill="#94a3b8">:8080</text>
   </g>
 
-  <!-- UPSTREAM PROXIES -->
+  <!-- UPSTREAM PROXIES (x=510..730, y=100..260) -->
   <g filter="url(#shadow)">
-    <rect x="540" y="155" width="190" height="120" rx="12" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5"/>
-    <text x="635" y="185" text-anchor="middle" font-size="14" font-weight="600" fill="#7c3aed">Upstream Proxies</text>
-    <!-- Proxy circles -->
-    <circle cx="595" cy="218" r="14" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>
-    <text x="595" y="222" text-anchor="middle" font-size="9" fill="#7c3aed">P1</text>
-    <circle cx="635" cy="218" r="14" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>
-    <text x="635" y="222" text-anchor="middle" font-size="9" fill="#7c3aed">P2</text>
-    <circle cx="675" cy="218" r="14" fill="#f5f3ff" stroke="#c4b5fd" stroke-width="1"/>
-    <text x="675" y="222" text-anchor="middle" font-size="9" fill="#7c3aed">PN</text>
-    <!-- Round-robin arrow -->
-    <path d="M 600 235 Q 635 248, 670 235" fill="none" stroke="#c4b5fd" stroke-width="1" stroke-dasharray="3,2"/>
-    <text x="635" y="260" text-anchor="middle" font-size="9" fill="#a78bfa">round-robin · cooldown</text>
+    <rect x="510" y="100" width="220" height="160" rx="12" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="620" y="130" text-anchor="middle" font-size="14" font-weight="600" fill="#7c3aed">Upstream Proxies</text>
+    <!-- Circuit breaker states -->
+    <circle cx="570" cy="168" r="16" fill="#f0fdf4" stroke="#22c55e" stroke-width="1.5"/>
+    <text x="570" y="172" text-anchor="middle" font-size="8" fill="#16a34a">P1</text>
+    <circle cx="620" cy="168" r="16" fill="#fef2f2" stroke="#f87171" stroke-width="1.5"/>
+    <text x="620" y="172" text-anchor="middle" font-size="8" fill="#dc2626">P2</text>
+    <circle cx="670" cy="168" r="16" fill="#fffbeb" stroke="#fbbf24" stroke-width="1.5"/>
+    <text x="670" y="172" text-anchor="middle" font-size="8" fill="#d97706">P3</text>
+    <!-- Legend -->
+    <circle cx="560" cy="204" r="5" fill="#22c55e"/>
+    <text x="570" y="208" font-size="8" fill="#64748b">Closed</text>
+    <circle cx="613" cy="204" r="5" fill="#f87171"/>
+    <text x="623" y="208" font-size="8" fill="#64748b">Open</text>
+    <circle cx="664" cy="204" r="5" fill="#fbbf24"/>
+    <text x="674" y="208" font-size="8" fill="#64748b">Half-Open</text>
+    <text x="620" y="244" text-anchor="middle" font-size="9" fill="#a78bfa">round-robin . circuit breaker</text>
   </g>
 
-  <!-- TARGET -->
+  <!-- TARGET (x=800..920, y=140..200) -->
   <g filter="url(#shadow)">
-    <rect x="820" y="185" width="110" height="60" rx="30" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
-    <text x="875" y="212" text-anchor="middle" font-size="11" font-weight="600" fill="#64748b">TARGET</text>
-    <text x="875" y="228" text-anchor="middle" font-size="9" fill="#94a3b8">Cloudflare</text>
+    <rect x="800" y="140" width="120" height="60" rx="30" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+    <text x="860" y="167" text-anchor="middle" font-size="11" font-weight="600" fill="#64748b">TARGET</text>
+    <text x="860" y="183" text-anchor="middle" font-size="9" fill="#94a3b8">Cloudflare</text>
   </g>
 
-  <!-- ==================== ROW 2: REDIS + SOLVER ==================== -->
+  <!-- ==================== ROW 2: REDIS (left) and SOLVER (right) ==================== -->
 
-  <!-- REDIS -->
+  <!-- REDIS (x=60..300, y=370..500) -->
   <g filter="url(#shadow)">
-    <rect x="250" y="370" width="190" height="100" rx="12" fill="#ffffff" stroke="#dc2626" stroke-width="1.5"/>
-    <!-- Redis badge — top-left, more spacing to title -->
-    <rect x="262" y="380" width="50" height="18" rx="9" fill="#DC382D"/>
-    <text x="287" y="392.5" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">Redis</text>
-    <!-- Title — pushed down for spacing -->
-    <text x="345" y="418" text-anchor="middle" font-size="14" font-weight="600" fill="#dc2626">Valkey / Redis</text>
-    <text x="345" y="436" text-anchor="middle" font-size="10" fill="#64748b">Job Queue · Cookie Store</text>
-    <text x="345" y="452" text-anchor="middle" font-size="10" fill="#64748b">Response Cache</text>
+    <rect x="60" y="370" width="240" height="130" rx="12" fill="#ffffff" stroke="#dc2626" stroke-width="1.5"/>
+    <rect x="72" y="380" width="50" height="18" rx="9" fill="#DC382D"/>
+    <text x="97" y="392.5" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">Redis</text>
+    <text x="180" y="418" text-anchor="middle" font-size="14" font-weight="600" fill="#dc2626">Valkey / Redis</text>
+    <text x="180" y="438" text-anchor="middle" font-size="10" fill="#64748b">Stream: XADD / XREADGROUP</text>
+    <text x="180" y="454" text-anchor="middle" font-size="10" fill="#64748b">Cookies . Cache . DLQ</text>
+    <text x="180" y="474" text-anchor="middle" font-size="10" fill="#94a3b8">Consumer Groups . ACK</text>
   </g>
 
-  <!-- SOLVER — expanded to show multi-browser pool -->
+  <!-- SOLVER (x=410..920, y=340..590) -->
   <g filter="url(#shadow)">
-    <rect x="540" y="340" width="390" height="230" rx="12" fill="#ffffff" stroke="#22c55e" stroke-width="1.5"/>
-    <!-- Node.js badge — top-left, more spacing -->
-    <rect x="552" y="352" width="56" height="18" rx="9" fill="#339933"/>
-    <text x="580" y="364.5" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">Node.js</text>
-    <!-- Title — pushed down -->
-    <text x="735" y="380" text-anchor="middle" font-size="14" font-weight="600" fill="#16a34a">Solver Service</text>
-    <text x="735" y="396" text-anchor="middle" font-size="10" fill="#64748b">Puppeteer Real Browser</text>
+    <rect x="410" y="340" width="510" height="250" rx="12" fill="#ffffff" stroke="#22c55e" stroke-width="1.5"/>
+    <rect x="422" y="352" width="36" height="18" rx="9" fill="#3178C6"/>
+    <text x="440" y="364.5" text-anchor="middle" font-size="9" font-weight="700" fill="#ffffff">TS</text>
+    <text x="665" y="368" text-anchor="middle" font-size="14" font-weight="600" fill="#16a34a">Solver Service</text>
+    <text x="665" y="386" text-anchor="middle" font-size="10" fill="#64748b">Puppeteer Real Browser . Consumer Group</text>
 
     <!-- Browser 1 -->
     <g>
-      <rect x="560" y="414" width="108" height="100" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
-      <text x="614" y="432" text-anchor="middle" font-size="9" font-weight="600" fill="#16a34a">Browser 1</text>
-      <text x="614" y="444" text-anchor="middle" font-size="8" fill="#94a3b8">via Proxy A</text>
-      <rect x="568" y="454" width="40" height="22" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-      <text x="588" y="469" text-anchor="middle" font-size="7" fill="#16a34a">Tab 1</text>
-      <rect x="614" y="454" width="40" height="22" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-      <text x="634" y="469" text-anchor="middle" font-size="7" fill="#16a34a">Tab 2</text>
-      <rect x="568" y="482" width="40" height="22" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-      <text x="588" y="497" text-anchor="middle" font-size="7" fill="#16a34a">Tab 3</text>
-      <rect x="614" y="482" width="40" height="22" rx="4" fill="#f0fdf4" stroke="#d1d5db" stroke-width="1" stroke-dasharray="3,2"/>
-      <text x="634" y="497" text-anchor="middle" font-size="7" fill="#94a3b8">···</text>
+      <rect x="430" y="404" width="108" height="90" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
+      <text x="484" y="422" text-anchor="middle" font-size="9" font-weight="600" fill="#16a34a">Browser 1</text>
+      <rect x="438" y="432" width="40" height="20" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+      <text x="458" y="446" text-anchor="middle" font-size="7" fill="#16a34a">Tab 1</text>
+      <rect x="484" y="432" width="40" height="20" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+      <text x="504" y="446" text-anchor="middle" font-size="7" fill="#16a34a">Tab 2</text>
+      <rect x="438" y="458" width="40" height="20" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+      <text x="458" y="472" text-anchor="middle" font-size="7" fill="#16a34a">Tab 3</text>
     </g>
 
     <!-- Browser 2 -->
     <g>
-      <rect x="680" y="414" width="108" height="100" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
-      <text x="734" y="432" text-anchor="middle" font-size="9" font-weight="600" fill="#16a34a">Browser 2</text>
-      <text x="734" y="444" text-anchor="middle" font-size="8" fill="#94a3b8">via Proxy B</text>
-      <rect x="688" y="454" width="40" height="22" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-      <text x="708" y="469" text-anchor="middle" font-size="7" fill="#16a34a">Tab 1</text>
-      <rect x="734" y="454" width="40" height="22" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-      <text x="754" y="469" text-anchor="middle" font-size="7" fill="#16a34a">Tab 2</text>
-      <rect x="688" y="482" width="40" height="22" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-      <text x="708" y="497" text-anchor="middle" font-size="7" fill="#16a34a">Tab 3</text>
-      <rect x="734" y="482" width="40" height="22" rx="4" fill="#f0fdf4" stroke="#d1d5db" stroke-width="1" stroke-dasharray="3,2"/>
-      <text x="754" y="497" text-anchor="middle" font-size="7" fill="#94a3b8">···</text>
+      <rect x="558" y="404" width="108" height="90" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
+      <text x="612" y="422" text-anchor="middle" font-size="9" font-weight="600" fill="#16a34a">Browser 2</text>
+      <rect x="566" y="432" width="40" height="20" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+      <text x="586" y="446" text-anchor="middle" font-size="7" fill="#16a34a">Tab 1</text>
+      <rect x="612" y="432" width="40" height="20" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+      <text x="632" y="446" text-anchor="middle" font-size="7" fill="#16a34a">Tab 2</text>
+      <rect x="566" y="458" width="40" height="20" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+      <text x="586" y="472" text-anchor="middle" font-size="7" fill="#16a34a">Tab 3</text>
     </g>
 
     <!-- Browser N -->
     <g>
-      <rect x="800" y="414" width="108" height="100" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
-      <text x="854" y="432" text-anchor="middle" font-size="9" font-weight="600" fill="#16a34a">Browser N</text>
-      <text x="854" y="444" text-anchor="middle" font-size="8" fill="#94a3b8">via Proxy C</text>
-      <rect x="808" y="454" width="40" height="22" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-      <text x="828" y="469" text-anchor="middle" font-size="7" fill="#16a34a">Tab 1</text>
-      <rect x="854" y="454" width="40" height="22" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-      <text x="874" y="469" text-anchor="middle" font-size="7" fill="#16a34a">Tab 2</text>
-      <rect x="808" y="482" width="40" height="22" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
-      <text x="828" y="497" text-anchor="middle" font-size="7" fill="#16a34a">Tab 3</text>
-      <rect x="854" y="482" width="40" height="22" rx="4" fill="#f0fdf4" stroke="#d1d5db" stroke-width="1" stroke-dasharray="3,2"/>
-      <text x="874" y="497" text-anchor="middle" font-size="7" fill="#94a3b8">···</text>
+      <rect x="686" y="404" width="108" height="90" rx="8" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
+      <text x="740" y="422" text-anchor="middle" font-size="9" font-weight="600" fill="#16a34a">Browser N</text>
+      <rect x="694" y="432" width="40" height="20" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+      <text x="714" y="446" text-anchor="middle" font-size="7" fill="#16a34a">Tab 1</text>
+      <rect x="740" y="432" width="40" height="20" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+      <text x="760" y="446" text-anchor="middle" font-size="7" fill="#16a34a">Tab 2</text>
+      <rect x="694" y="458" width="40" height="20" rx="4" fill="#dcfce7" stroke="#bbf7d0" stroke-width="1"/>
+      <text x="714" y="472" text-anchor="middle" font-size="7" fill="#16a34a">Tab 3</text>
     </g>
 
-    <!-- Pool info -->
-    <text x="735" y="540" text-anchor="middle" font-size="9" fill="#94a3b8">MAX_BROWSERS × MAX_TABS concurrent solves · idle cleanup · round-robin proxy</text>
-    <text x="735" y="556" text-anchor="middle" font-size="9" fill="#94a3b8">default: 3 browsers × 3 tabs = 9 concurrent solves</text>
+    <!-- Worker info -->
+    <text x="665" y="520" text-anchor="middle" font-size="9" fill="#64748b">XREADGROUP . XACK . retry + DLQ</text>
+    <text x="665" y="536" text-anchor="middle" font-size="9" fill="#94a3b8">Scalable: multiple workers per consumer group</text>
+
+    <!-- DLQ pill -->
+    <rect x="615" y="548" width="100" height="24" rx="12" fill="#fef2f2" stroke="#fca5a5" stroke-width="1"/>
+    <text x="665" y="564" text-anchor="middle" font-size="8" font-weight="500" fill="#dc2626">queue:dead (DLQ)</text>
   </g>
 
-  <!-- ==================== CONNECTIONS (orthogonal / 90-degree) ==================== -->
+  <!-- ==================== CONNECTIONS (all orthogonal) ==================== -->
 
-  <!-- Client → Proxy (straight horizontal) -->
-  <path d="M 160 215 L 245 215" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <text x="202" y="208" text-anchor="middle" font-size="9" fill="#94a3b8">request</text>
+  <!-- Client -> Proxy (horizontal) -->
+  <path d="M 150 170 L 195 170" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="172" y="163" text-anchor="middle" font-size="9" fill="#94a3b8">request</text>
 
-  <!-- Proxy → Upstream (straight horizontal) -->
-  <path d="M 440 215 L 535 215" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <text x="487" y="208" text-anchor="middle" font-size="9" fill="#94a3b8">forward</text>
+  <!-- Proxy -> Upstream (horizontal) -->
+  <path d="M 440 170 L 505 170" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="472" y="163" text-anchor="middle" font-size="9" fill="#94a3b8">forward</text>
 
-  <!-- Upstream → Target (straight horizontal) -->
-  <path d="M 730 215 L 815 215" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Upstream -> Target (horizontal) -->
+  <path d="M 730 170 L 795 170" fill="none" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-  <!-- Challenge path: Target → down → left → up → Proxy (orthogonal, dashed) -->
-  <path d="M 875 245 L 875 310 L 345 310 L 345 280" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-amber)"/>
-  <rect x="570" y="300" width="100" height="20" rx="10" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/>
-  <text x="620" y="314" text-anchor="middle" font-size="9" font-weight="500" fill="#d97706">CF Challenge?</text>
+  <!-- Challenge path: Target bottom -> down -> left along y=290 -> up to Proxy bottom -->
+  <!-- Target bottom at (860,200), go down to y=290, left to x=320, up to Proxy bottom at (320,260) -->
+  <path d="M 860 200 L 860 290 L 320 290 L 320 260" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrow-amber)"/>
+  <rect x="545" y="278" width="100" height="20" rx="10" fill="#fffbeb" stroke="#fde68a" stroke-width="1"/>
+  <text x="595" y="292" text-anchor="middle" font-size="9" font-weight="500" fill="#d97706">CF Challenge?</text>
 
-  <!-- Proxy → Redis: queue job (orthogonal, down) -->
-  <path d="M 310 275 L 310 365" fill="none" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <text x="298" y="325" text-anchor="end" font-size="9" fill="#60a5fa">queue job</text>
+  <!-- Proxy -> Redis: XADD job (vertical, left line at x=280) -->
+  <!-- Proxy bottom at y=260, Redis top at y=370 -->
+  <path d="M 280 260 L 280 365" fill="none" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <text x="268" y="320" text-anchor="end" font-size="9" fill="#60a5fa">XADD job</text>
 
-  <!-- Redis → Proxy: cookies (orthogonal, up) -->
-  <path d="M 380 370 L 380 275" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-blue)"/>
-  <text x="392" y="325" font-size="9" fill="#60a5fa">cookies</text>
+  <!-- Redis -> Proxy: cookies (vertical, right line at x=320, 40px gap) -->
+  <path d="M 220 370 L 220 260" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-blue)"/>
+  <text x="208" y="320" text-anchor="end" font-size="9" fill="#60a5fa">cookies</text>
 
-  <!-- Redis → Solver (straight horizontal) -->
-  <path d="M 440 410 L 535 410" fill="none" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
-  <text x="487" y="403" text-anchor="middle" font-size="9" fill="#60a5fa">pop job</text>
+  <!-- Redis -> Solver: XREADGROUP (horizontal, top line at y=425) -->
+  <path d="M 300 425 L 405 425" fill="none" stroke="#60a5fa" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <text x="352" y="418" text-anchor="middle" font-size="9" fill="#60a5fa">XREADGROUP</text>
 
-  <!-- Solver → Redis (straight horizontal) -->
-  <path d="M 540 440 L 445 440" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-blue)"/>
-  <text x="492" y="455" text-anchor="middle" font-size="9" fill="#60a5fa">store result</text>
+  <!-- Solver -> Redis: XACK + cookies (horizontal, bottom line at y=455, 30px gap) -->
+  <path d="M 410 455 L 305 455" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrow-blue)"/>
+  <text x="352" y="472" text-anchor="middle" font-size="9" fill="#60a5fa">XACK + cookies</text>
 
   <!-- ==================== LEGEND ==================== -->
-  <g transform="translate(40, 590)">
+  <g transform="translate(40, 640)">
     <text x="0" y="14" font-size="10" font-weight="600" fill="#475569">LEGEND</text>
     <line x1="70" y1="10" x2="100" y2="10" stroke="#94a3b8" stroke-width="1.5"/>
     <text x="106" y="14" font-size="9" fill="#64748b">Request flow</text>
-    <line x1="180" y1="10" x2="210" y2="10" stroke="#60a5fa" stroke-width="1.5"/>
-    <text x="216" y="14" font-size="9" fill="#64748b">Data flow</text>
-    <line x1="275" y1="10" x2="305" y2="10" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3"/>
-    <text x="311" y="14" font-size="9" fill="#64748b">Challenge path</text>
+    <line x1="185" y1="10" x2="215" y2="10" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="221" y="14" font-size="9" fill="#64748b">Data flow (Redis)</text>
+    <line x1="310" y1="10" x2="340" y2="10" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="6,3"/>
+    <text x="346" y="14" font-size="9" fill="#64748b">Challenge path</text>
+    <circle cx="430" cy="10" r="5" fill="#22c55e"/>
+    <text x="440" y="14" font-size="9" fill="#64748b">Closed</text>
+    <circle cx="480" cy="10" r="5" fill="#f87171"/>
+    <text x="490" y="14" font-size="9" fill="#64748b">Open</text>
+    <circle cx="522" cy="10" r="5" fill="#fbbf24"/>
+    <text x="532" y="14" font-size="9" fill="#64748b">Half-Open</text>
+    <text x="592" y="14" font-size="9" fill="#94a3b8">(Circuit Breaker)</text>
   </g>
 </svg>
