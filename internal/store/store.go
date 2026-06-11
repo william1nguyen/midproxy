@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/william1nguyen/midproxy/internal/ratelimit"
 )
 
 type Cookie struct {
@@ -26,11 +27,11 @@ type SolveResult struct {
 type Store struct {
 	rdb      *redis.Client
 	cacheTTL time.Duration
-	maxRPS   int64
+	limiter  ratelimit.Limiter
 }
 
-func New(rdb *redis.Client, cacheTTL time.Duration, maxRPS int64) *Store {
-	return &Store{rdb: rdb, cacheTTL: cacheTTL, maxRPS: maxRPS}
+func New(rdb *redis.Client, cacheTTL time.Duration, limiter ratelimit.Limiter) *Store {
+	return &Store{rdb: rdb, cacheTTL: cacheTTL, limiter: limiter}
 }
 
 func buildKey(prefix, value string) string {
@@ -91,15 +92,8 @@ func (s *Store) InvalidateSolveResult(ctx context.Context, domain string) {
 }
 
 func (s *Store) AllowRequest(ctx context.Context, domain string) bool {
-	if s.maxRPS <= 0 {
+	if s.limiter == nil {
 		return true
 	}
-	k := buildKey("rl", domain)
-	pipe := s.rdb.Pipeline()
-	incr := pipe.Incr(ctx, k)
-	pipe.Expire(ctx, k, time.Second)
-	if _, err := pipe.Exec(ctx); err != nil {
-		return true
-	}
-	return incr.Val() <= s.maxRPS
+	return s.limiter.Allow(ctx, domain)
 }

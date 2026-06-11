@@ -15,6 +15,7 @@ import (
 	"github.com/william1nguyen/midproxy/internal/config"
 	"github.com/william1nguyen/midproxy/internal/fetch"
 	"github.com/william1nguyen/midproxy/internal/proxy"
+	"github.com/william1nguyen/midproxy/internal/ratelimit"
 	"github.com/william1nguyen/midproxy/internal/solver"
 	"github.com/william1nguyen/midproxy/internal/store"
 )
@@ -51,7 +52,7 @@ func main() {
 		Addr:           fmt.Sprintf(":%d", cfg.Port),
 		Manager:        proxy.NewManager(cfg.Proxies, cfg.Circuit.FailureThreshold, cfg.Circuit.ResetTimeout),
 		FetchClient:    fetch.NewClient(cfg.Fetch.Timeout),
-		Store:          store.New(rdb, cfg.Cache.TTL, cfg.RateLimit.MaxRPS),
+		Store:          store.New(rdb, cfg.Cache.TTL, ratelimit.NewTokenBucket(rdb, cfg.RateLimit.MaxRPS)),
 		Solver:         slv,
 		CacheEnabled:   cfg.Cache.Enabled,
 		MaxRetries:     cfg.Fetch.MaxRetries,

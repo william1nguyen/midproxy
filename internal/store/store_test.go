@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/william1nguyen/midproxy/internal/ratelimit"
 	"github.com/william1nguyen/midproxy/internal/store"
 	"github.com/william1nguyen/midproxy/internal/testutil"
 )
@@ -16,7 +17,7 @@ import (
 
 func TestCacheSetAndGet(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 100)
+	s := store.New(rdb, 10*time.Second, nil)
 	ctx := context.Background()
 
 	header := http.Header{"Content-Type": []string{"application/json"}}
@@ -48,7 +49,7 @@ func TestCacheSetAndGet(t *testing.T) {
 
 func TestCacheMiss(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 100)
+	s := store.New(rdb, 10*time.Second, nil)
 	ctx := context.Background()
 
 	_, err := s.GetCachedResponse(ctx, "GET", "http://never-set.example.com")
@@ -59,7 +60,7 @@ func TestCacheMiss(t *testing.T) {
 
 func TestCacheTTLExpired(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 1*time.Second, 100)
+	s := store.New(rdb, 1*time.Second, nil)
 	ctx := context.Background()
 
 	resp := store.EncodeCachedResponse(200, http.Header{}, []byte("body"))
@@ -77,7 +78,7 @@ func TestCacheTTLExpired(t *testing.T) {
 
 func TestCacheOverwrite(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 100)
+	s := store.New(rdb, 10*time.Second, nil)
 	ctx := context.Background()
 
 	first := store.EncodeCachedResponse(200, http.Header{}, []byte("first"))
@@ -110,7 +111,7 @@ func TestCacheOverwrite(t *testing.T) {
 
 func TestGetSolveResultNoData(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 100)
+	s := store.New(rdb, 10*time.Second, nil)
 	ctx := context.Background()
 
 	_, err := s.GetSolveResult(ctx, "missing-domain.com")
@@ -121,7 +122,7 @@ func TestGetSolveResultNoData(t *testing.T) {
 
 func TestStoreThenGetSolveResult(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 100)
+	s := store.New(rdb, 10*time.Second, nil)
 	ctx := context.Background()
 
 	payload := `{"userAgent":"TestAgent","cookies":[{"name":"n","value":"v","domain":"test.com","path":"/"}],"proxyURL":"http://p:1"}`
@@ -146,7 +147,7 @@ func TestStoreThenGetSolveResult(t *testing.T) {
 
 func TestSolveResultRotation(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 100)
+	s := store.New(rdb, 10*time.Second, nil)
 	ctx := context.Background()
 
 	push := func(ua string) {
@@ -181,7 +182,7 @@ func TestSolveResultRotation(t *testing.T) {
 
 func TestSolveResultTTL(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 100)
+	s := store.New(rdb, 10*time.Second, nil)
 	ctx := context.Background()
 
 	payload := `{"userAgent":"TTLAgent","cookies":[],"proxyURL":"http://p:1"}`
@@ -204,7 +205,7 @@ func TestSolveResultTTL(t *testing.T) {
 
 func TestAllowRequestUnderLimit(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 5)
+	s := store.New(rdb, 10*time.Second, ratelimit.NewTokenBucket(rdb, 5))
 	ctx := context.Background()
 
 	for i := 1; i <= 3; i++ {
@@ -216,7 +217,7 @@ func TestAllowRequestUnderLimit(t *testing.T) {
 
 func TestAllowRequestHitLimit(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 5)
+	s := store.New(rdb, 10*time.Second, ratelimit.NewTokenBucket(rdb, 5))
 	ctx := context.Background()
 
 	for i := 1; i <= 5; i++ {
@@ -231,7 +232,7 @@ func TestAllowRequestHitLimit(t *testing.T) {
 
 func TestAllowRequestResetAfterWindow(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 5)
+	s := store.New(rdb, 10*time.Second, ratelimit.NewTokenBucket(rdb, 5))
 	ctx := context.Background()
 
 	for i := 1; i <= 5; i++ {
@@ -252,7 +253,7 @@ func TestAllowRequestResetAfterWindow(t *testing.T) {
 
 func TestInvalidateSolveResult(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, 100)
+	s := store.New(rdb, 10*time.Second, nil)
 	ctx := context.Background()
 
 	payload := `{"userAgent":"InvAgent","cookies":[],"proxyURL":"http://p:1"}`
