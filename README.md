@@ -22,6 +22,9 @@ An HTTP/HTTPS middleman proxy that detects and solves Cloudflare challenges auto
 - Per-domain rate limiting
 - Response caching (GET 200)
 - Browser pool with multiple instances, tab reuse, and idle cleanup (default: 3 browsers × 3 tabs = 9 concurrent solves)
+- Solve job deduplication per domain with Redis lock (`solving:{domain}`)
+- Dynamic `Retry-After` header based on remaining solve time
+- Stale job detection — solver skips outdated jobs when cookies are re-solved
 
 ## Prerequisites
 
