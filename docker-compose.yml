@@ -48,11 +48,11 @@ services:
       context: ./solver
       dockerfile: Dockerfile
     hostname: solver
+    shm_size: "256m"
+    env_file:
+      - ./solver/.env
     environment:
       REDIS_URL: redis://:${VALKEY_PASSWORD:-redis}@valkey:6379/1
-      PROXY_LIST: ${PROXY_LIST:-}
-      MAX_BROWSERS: ${MAX_BROWSERS:-3}
-      MAX_TABS: ${MAX_TABS:-3}
     depends_on:
       - valkey
     <<: *common
