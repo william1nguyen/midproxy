@@ -28,19 +28,28 @@ An HTTP/HTTPS middleman proxy that detects and solves Cloudflare challenges auto
 
 ## Prerequisites
 
-- Go 1.22+
-- Node.js 18+ & pnpm
-- Docker (for Redis)
+- Go 1.26+
+- Node.js 22+ & pnpm
+- Docker
 
 ## Quick Start
 
-```bash
-cp configs/config.example.yaml configs/config.yaml  # configure proxies & redis
-make docker-up                                       # start redis
-make dev                                             # start proxy
-make solver-dev                                      # start solver (new terminal)
+### Docker (recommended)
 
-# 5. Test it
+```bash
+cp configs/config.example.yaml configs/config.yaml
+cp solver/.env.example solver/.env          # configure proxies & redis
+docker compose -p midproxy up -d
+curl -k -x http://localhost:8080 https://2captcha.com/demo/cloudflare-turnstile-challenge
+```
+
+### Local development
+
+```bash
+cp configs/config.example.yaml configs/config.yaml
+make docker-up                               # start redis
+make dev                                     # start proxy
+make solver-dev                              # start solver (new terminal)
 curl -k -x http://localhost:8080 https://2captcha.com/demo/cloudflare-turnstile-challenge
 ```
 
@@ -55,7 +64,7 @@ proxies:
   - http://user:pass@proxy1:8080
 solver:
   enabled: true
-  timeout: 90s
+  timeout: 180s
 redis:
   address: localhost:6379
   password: ""
@@ -72,22 +81,56 @@ rate_limit:
 <details>
 <summary><b>Solver</b> — <code>solver/.env</code></summary>
 
-| Variable               | Default    | Description                      |
-| ---------------------- | ---------- | -------------------------------- |
-| `REDIS_URL`          | —         | Redis connection string          |
-| `PROXY_LIST`         | —         | Comma-separated upstream proxies |
-| `MAX_BROWSERS`       | `3`      | Max browser instances            |
-| `MAX_TABS`           | `3`      | Max tabs per browser             |
-| `IDLE_TIMEOUT`       | `300000` | Close idle browsers (ms)         |
-| `CLEARANCE_TIMEOUT`  | `30000`  | Wait for cf_clearance (ms)       |
-| `NAVIGATION_TIMEOUT` | `60000`  | Page load timeout (ms)           |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `REDIS_URL` | — | Redis connection string |
+| `PROXY_LIST` | — | Comma-separated upstream proxies |
+| `HEADLESS` | `false` | Run browser in headless mode |
+| `MAX_BROWSERS` | `3` | Max browser instances |
+| `MAX_TABS` | `3` | Max tabs per browser |
+| `IDLE_TIMEOUT` | `300000` | Close idle browsers (ms) |
+| `CLEARANCE_TIMEOUT` | `30000` | Wait for cf_clearance (ms) |
+| `NAVIGATION_TIMEOUT` | `60000` | Page load timeout (ms) |
 
 </details>
 
+## Development
+
+### Lint
+
+```bash
+make lint            # run all linters (golangci-lint + biome)
+make lint-proxy      # go only
+make lint-solver     # solver only
+```
+
+### Test
+
+```bash
+make test            # unit + solver tests
+make test-proxy      # go tests with race detector + coverage
+make test-solver     # solver vitest
+```
+
+### Pre-commit hooks
+
+Managed by [Lefthook](https://github.com/evilmartians/lefthook). Install with `lefthook install`.
+
+- **pre-commit**: lint + format (only for changed files)
+- **pre-push**: unit tests
+
+### Build
+
+```bash
+make build                    # go binary → bin/proxy
+cd solver && pnpm build       # tsup bundle → dist/index.js
+```
+
 ## Tech Stack
 
-| Component | Stack                                                                                   |
-| --------- | --------------------------------------------------------------------------------------- |
-| Proxy     | Go,[tls-client](https://github.com/bogdanfinn/tls-client), zerolog                         |
-| Solver    | Node.js,[puppeteer-real-browser](https://github.com/nicefeel/puppeteer-real-browser), pino |
-| Infra     | Valkey/Redis, Docker Compose                                                            |
+| Component | Stack |
+| --- | --- |
+| Proxy | Go, [tls-client](https://github.com/bogdanfinn/tls-client), zerolog |
+| Solver | TypeScript, [puppeteer-real-browser](https://github.com/nicefeel/puppeteer-real-browser), pino, tsup |
+| Lint | golangci-lint, [Biome](https://biomejs.dev) |
+| Infra | Valkey/Redis, Docker Compose |
