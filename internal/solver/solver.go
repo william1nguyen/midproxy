@@ -4,17 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 )
 
-type job struct {
-	ID  string `json:"id"`
-	URL string `json:"url"`
-}
+const streamKey = "stream:solve"
 
 type Solver struct {
 	rdb     *redis.Client
@@ -51,9 +47,10 @@ func (s *Solver) Trigger(ctx context.Context, targetURL, domain string, force bo
 		}
 	}
 
-	payload, _ := json.Marshal(job{ID: id, URL: targetURL})
-
-	if err := s.rdb.LPush(ctx, "queue:solve", payload).Err(); err != nil {
+	if err := s.rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: streamKey,
+		Values: map[string]interface{}{"id": id, "url": targetURL},
+	}).Err(); err != nil {
 		log.Error().Err(err).Msg("failed to push solve job")
 		s.rdb.Del(ctx, key)
 		return int(s.lockTTL.Seconds())

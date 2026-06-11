@@ -7,32 +7,62 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type circuitState int
+
 const (
-	maxConsecutiveFails = 3
-	cooldownDuration    = 5 * time.Minute
+	stateClosed circuitState = iota
+	stateOpen
+	stateHalfOpen
 )
 
 type upstream struct {
-	url           string
-	cooldownUntil time.Time
+	url       string
+	state     circuitState
+	failures  int
+	lastFail  time.Time
+	threshold int
+	resetTTL  time.Duration
+}
+
+func (u *upstream) isAvailable() bool {
+	switch u.state {
+	case stateClosed:
+		return true
+	case stateHalfOpen:
+		return true
+	case stateOpen:
+		if time.Since(u.lastFail) > u.resetTTL {
+			u.state = stateHalfOpen
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 type Manager struct {
 	mu        sync.Mutex
 	upstreams []upstream
-	fails     map[string]int
 	index     int
 }
 
-func NewManager(urls []string) *Manager {
+func NewManager(urls []string, failureThreshold int, resetTimeout time.Duration) *Manager {
+	if failureThreshold <= 0 {
+		failureThreshold = 5
+	}
+	if resetTimeout <= 0 {
+		resetTimeout = 30 * time.Second
+	}
+
 	upstreams := make([]upstream, len(urls))
 	for i, u := range urls {
-		upstreams[i] = upstream{url: u}
+		upstreams[i] = upstream{
+			url:       u,
+			threshold: failureThreshold,
+			resetTTL:  resetTimeout,
+		}
 	}
-	return &Manager{
-		upstreams: upstreams,
-		fails:     make(map[string]int),
-	}
+	return &Manager{upstreams: upstreams}
 }
 
 func (m *Manager) Pick() string {
@@ -46,7 +76,7 @@ func (m *Manager) Pick() string {
 	for range m.upstreams {
 		m.index = (m.index + 1) % len(m.upstreams)
 		u := &m.upstreams[m.index]
-		if time.Now().After(u.cooldownUntil) {
+		if u.isAvailable() {
 			return u.url
 		}
 	}
@@ -58,10 +88,11 @@ func (m *Manager) Pick() string {
 func (m *Manager) RecordSuccess(url string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.fails[url] = 0
+
 	for i := range m.upstreams {
 		if m.upstreams[i].url == url {
-			m.upstreams[i].cooldownUntil = time.Time{}
+			m.upstreams[i].state = stateClosed
+			m.upstreams[i].failures = 0
 			break
 		}
 	}
@@ -71,14 +102,21 @@ func (m *Manager) RecordFailure(url string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.fails[url]++
-	if m.fails[url] >= maxConsecutiveFails {
-		for i := range m.upstreams {
-			if m.upstreams[i].url == url {
-				m.upstreams[i].cooldownUntil = time.Now().Add(cooldownDuration)
-				break
-			}
+	for i := range m.upstreams {
+		if m.upstreams[i].url != url {
+			continue
 		}
-		m.fails[url] = 0
+		u := &m.upstreams[i]
+		u.failures++
+		u.lastFail = time.Now()
+
+		if u.state == stateHalfOpen {
+			u.state = stateOpen
+			log.Warn().Str("proxy", url).Msg("circuit opened (half-open probe failed)")
+		} else if u.failures >= u.threshold {
+			u.state = stateOpen
+			log.Warn().Str("proxy", url).Int("failures", u.failures).Msg("circuit opened")
+		}
+		break
 	}
 }

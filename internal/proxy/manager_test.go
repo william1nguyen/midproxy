@@ -3,16 +3,17 @@ package proxy_test
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/william1nguyen/midproxy/internal/proxy"
 )
 
+func newTestManager(urls []string) *proxy.Manager {
+	return proxy.NewManager(urls, 3, 30*time.Second)
+}
+
 func TestPickRotate(t *testing.T) {
-	m := proxy.NewManager([]string{
-		"http://a:1",
-		"http://b:1",
-		"http://c:1",
-	})
+	m := newTestManager([]string{"http://a:1", "http://b:1", "http://c:1"})
 
 	used := map[string]bool{}
 	for range 5 {
@@ -26,23 +27,19 @@ func TestPickRotate(t *testing.T) {
 	}
 }
 
-func TestPickCooldownSkipped(t *testing.T) {
-	m := proxy.NewManager([]string{
-		"http://a:1",
-	})
+func TestCircuitOpens(t *testing.T) {
+	m := newTestManager([]string{"http://a:1"})
 	u := m.Pick()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		m.RecordFailure(u)
 	}
 	if m.Pick() != "" {
-		t.Errorf("proxy in cooldown should not be returned")
+		t.Error("proxy should be unavailable after circuit opens")
 	}
 }
 
 func TestRecordSuccessResetsFails(t *testing.T) {
-	m := proxy.NewManager([]string{
-		"http://a:1",
-	})
+	m := newTestManager([]string{"http://a:1"})
 	u := m.Pick()
 	m.RecordFailure(u)
 	m.RecordFailure(u)
@@ -54,52 +51,43 @@ func TestRecordSuccessResetsFails(t *testing.T) {
 }
 
 func TestPickEmpty(t *testing.T) {
-	m := proxy.NewManager(nil)
+	m := proxy.NewManager(nil, 3, 30*time.Second)
 	if m.Pick() != "" {
 		t.Error("expected empty string for no proxies")
 	}
 }
 
-func TestAllProxiesInCooldown(t *testing.T) {
-	m := proxy.NewManager([]string{
-		"http://a:1",
-		"http://b:1",
-	})
+func TestAllCircuitsOpen(t *testing.T) {
+	m := newTestManager([]string{"http://a:1", "http://b:1"})
 	for _, u := range []string{"http://a:1", "http://b:1"} {
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			m.RecordFailure(u)
 		}
 	}
 	if m.Pick() != "" {
-		t.Error("expected empty string when all proxies are in cooldown")
+		t.Error("expected empty when all circuits open")
 	}
 }
 
-func TestCooldownExpires(t *testing.T) {
-	m := proxy.NewManager([]string{
-		"http://a:1",
-	})
+func TestCircuitRecovery(t *testing.T) {
+	m := newTestManager([]string{"http://a:1"})
 	u := m.Pick()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		m.RecordFailure(u)
 	}
 	if m.Pick() != "" {
-		t.Error("proxy should be in cooldown after 3 failures")
+		t.Error("circuit should be open")
 	}
 	m.RecordSuccess(u)
 	if m.Pick() == "" {
-		t.Error("proxy should be available again after RecordSuccess resets cooldown")
+		t.Error("circuit should be closed after success")
 	}
 }
 
 func TestConcurrentAccess(t *testing.T) {
-	m := proxy.NewManager([]string{
-		"http://a:1",
-		"http://b:1",
-		"http://c:1",
-	})
+	m := newTestManager([]string{"http://a:1", "http://b:1", "http://c:1"})
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
