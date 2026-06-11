@@ -11,7 +11,10 @@
 	test-all \
 	test-race \
 	solver \
-	solver-dev
+	solver-dev \
+	lint-proxy \
+	lint-solver \
+	lint
 
 # DOCKER
 DOCKER_COMPOSE_YAML = ./docker-compose.yml
@@ -57,6 +60,14 @@ solver:
 solver-dev:
 	cd $(SOLVER_DIR) && pnpm dev
 
+lint-proxy:
+	golangci-lint run ./...
+
+lint-solver:
+	cd $(SOLVER_DIR) && pnpm lint
+
+lint: lint-proxy lint-solver
+
 # HELPER
 help:
 	@echo "Commands:"
@@ -70,6 +81,9 @@ help:
 	@echo "  make test-solver      - Run solver JS tests"
 	@echo "  make test-all         - Run unit + solver tests"
 	@echo "  make test-race        - Run tests with race detector"
+	@echo "  make lint             - Run all linters"
+	@echo "  make lint-proxy       - Run golangci-lint"
+	@echo "  make lint-solver      - Run biome"
 	@echo ""
 	@echo "Solver:"
 	@echo "  make solver      - Start solver service (headless)"

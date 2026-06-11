@@ -30,5 +30,32 @@ services:
           memory: 128m
     <<: *common
 
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: proxy
+    ports:
+      - 8080:8080
+    volumes:
+      - ./configs/config.yaml:/etc/midproxy/config.yaml:ro
+    depends_on:
+      - valkey
+    <<: *common
+
+  solver:
+    build:
+      context: ./solver
+      dockerfile: Dockerfile
+    hostname: solver
+    environment:
+      REDIS_URL: redis://:${VALKEY_PASSWORD:-redis}@valkey:6379/1
+      PROXY_LIST: ${PROXY_LIST:-}
+      MAX_BROWSERS: ${MAX_BROWSERS:-3}
+      MAX_TABS: ${MAX_TABS:-3}
+    depends_on:
+      - valkey
+    <<: *common
+
 volumes:
   valkey_data:
