@@ -11,20 +11,18 @@ linters:
     - unused
     - ineffassign
     - gocritic
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        - exitAfterDefer
+  exclusions:
+    paths:
+      - docs
+      - solver
 
 formatters:
   enable:
     - gofmt
-
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-    disabled-checks:
-      - exitAfterDefer
-
-issues:
-  exclude-dirs:
-    - docs
-    - solver

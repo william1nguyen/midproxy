@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -40,7 +41,7 @@ func TestCacheSetAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeBody: %v", err)
 	}
-	if string(decoded) != string(body) {
+	if !bytes.Equal(decoded, body) {
 		t.Errorf("expected body %q, got %q", body, decoded)
 	}
 }
