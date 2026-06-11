@@ -156,11 +156,6 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	domain := r.URL.Hostname()
 
-	if s.store != nil && !s.store.AllowRequest(ctx, domain) {
-		http.Error(w, "rate limited", http.StatusTooManyRequests)
-		return
-	}
-
 	if body, cached, ok := s.cacheGet(ctx, r.Method, r.URL.String()); ok {
 		for k, vv := range cached.Header {
 			for _, v := range vv {
@@ -170,6 +165,11 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Cache", "HIT")
 		w.WriteHeader(cached.StatusCode)
 		w.Write(body)
+		return
+	}
+
+	if s.store != nil && !s.store.AllowRequest(ctx, domain) {
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
 		return
 	}
 
@@ -267,6 +267,12 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			writeRawResponse(tlsConn, cached.StatusCode, cached.Header, body)
 			cancel()
 			continue
+		}
+
+		if s.store != nil && !s.store.AllowRequest(ctx, host) {
+			writeRawResponse(tlsConn, 429, http.Header{}, []byte("rate limited"))
+			cancel()
+			break
 		}
 
 		result := s.forwardWithRetry(ctx, req, host)

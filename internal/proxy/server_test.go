@@ -16,6 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/william1nguyen/midproxy/internal/fetch"
 	"github.com/william1nguyen/midproxy/internal/proxy"
+	"github.com/william1nguyen/midproxy/internal/ratelimit"
 	"github.com/william1nguyen/midproxy/internal/solver"
 	"github.com/william1nguyen/midproxy/internal/store"
 	"github.com/william1nguyen/midproxy/internal/testutil"
@@ -35,7 +36,7 @@ func setup(t *testing.T, handler http.HandlerFunc) *testEnv {
 	t.Cleanup(upstream.Close)
 
 	rdb := testutil.SetupRedis(t)
-	st := store.New(rdb, 30*time.Second, 5)
+	st := store.New(rdb, 30*time.Second, ratelimit.NewTokenBucket(rdb, 5))
 	slv := solver.New(rdb, 30*time.Second)
 
 	srv := proxy.NewServer(&proxy.ServerConfig{
@@ -155,8 +156,8 @@ func TestRateLimited(t *testing.T) {
 	})
 
 	got429 := false
-	for range 10 {
-		resp, err := env.client.Get(env.upstream.URL + "/rl")
+	for i := range 10 {
+		resp, err := env.client.Get(fmt.Sprintf("%s/rl/%d", env.upstream.URL, i))
 		if err != nil {
 			t.Skipf("tls-client: %v", err)
 		}
