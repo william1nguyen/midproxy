@@ -59,6 +59,12 @@ func (m *Manager) RecordSuccess(url string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.fails[url] = 0
+	for i := range m.upstreams {
+		if m.upstreams[i].url == url {
+			m.upstreams[i].cooldownUntil = time.Time{}
+			break
+		}
+	}
 }
 
 func (m *Manager) RecordFailure(url string) {
