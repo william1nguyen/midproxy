@@ -1,0 +1,22 @@
+pre-commit:
+  parallel: true
+  commands:
+    go-lint:
+      glob: "*.go"
+      run: golangci-lint run ./...
+    go-fmt:
+      glob: "*.go"
+      run: gofmt -l {staged_files} && test -z "$(gofmt -l {staged_files})"
+    solver-lint:
+      glob: "solver/**/*.ts"
+      run: cd solver && pnpm lint
+
+pre-push:
+  parallel: true
+  commands:
+    go-test:
+      glob: "*.go"
+      run: go test -short -race ./...
+    solver-test:
+      glob: "solver/**/*.ts"
+      run: cd solver && pnpm test
