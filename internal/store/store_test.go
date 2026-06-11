@@ -148,7 +148,6 @@ func TestSolveResultRotation(t *testing.T) {
 	s := store.New(rdb, 10*time.Second, 100)
 	ctx := context.Background()
 
-	type entry struct{ UA string }
 	push := func(ua string) {
 		data, _ := json.Marshal(map[string]interface{}{
 			"userAgent": ua,

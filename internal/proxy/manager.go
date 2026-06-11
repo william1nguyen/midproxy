@@ -18,10 +18,10 @@ type upstream struct {
 }
 
 type Manager struct {
-	mu       sync.Mutex
+	mu        sync.Mutex
 	upstreams []upstream
-	fails    map[string]int
-	index    int
+	fails     map[string]int
+	index     int
 }
 
 func NewManager(urls []string) *Manager {

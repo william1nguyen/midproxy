@@ -46,7 +46,6 @@ func main() {
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	srv := proxy.NewServer(proxy.ServerConfig{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
@@ -58,8 +57,9 @@ func main() {
 	})
 
 	if err := srv.ListenAndServe(ctx); err != nil && ctx.Err() == nil {
-		log.Fatal().Err(err).Msg("server error")
+		log.Error().Err(err).Msg("server error")
 	}
 
+	stop()
 	log.Info().Msg("shutdown complete")
 }

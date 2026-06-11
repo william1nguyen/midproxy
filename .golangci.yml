@@ -1,0 +1,30 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gocritic
+
+formatters:
+  enable:
+    - gofmt
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+    disabled-checks:
+      - exitAfterDefer
+
+issues:
+  exclude-dirs:
+    - docs
+    - solver

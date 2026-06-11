@@ -246,7 +246,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 				s.store.InvalidateSolveResult(ctx, host)
 			}
 			retryAfter := s.solver.Trigger(ctx, req.URL.String(), host, force)
-			tlsConn.Write([]byte(fmt.Sprintf("HTTP/1.1 503 Service Unavailable\r\nRetry-After: %d\r\n\r\nsolving challenge\n", retryAfter)))
+			fmt.Fprintf(tlsConn, "HTTP/1.1 503 Service Unavailable\r\nRetry-After: %d\r\n\r\nsolving challenge\n", retryAfter)
 			cancel()
 			break
 		}
