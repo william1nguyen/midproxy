@@ -37,7 +37,8 @@ cache:
   enabled: true
   ttl: 10m
 rate_limit:
-  max_rps: 20
+  max_requests: 20
+  window: 1m
 `
 	path := writeTemp(t, yaml)
 	cfg, err := config.Load(path)
@@ -52,7 +53,8 @@ rate_limit:
 	require.Equal(t, 2, cfg.Redis.DB)
 	require.True(t, cfg.Cache.Enabled)
 	require.Equal(t, 10*time.Minute, cfg.Cache.TTL)
-	require.Equal(t, int64(20), cfg.RateLimit.MaxRPS)
+	require.Equal(t, int64(20), cfg.RateLimit.MaxRequests)
+	require.Equal(t, time.Minute, cfg.RateLimit.Window)
 }
 
 func TestLoadFileNotFound(t *testing.T) {
@@ -75,7 +77,8 @@ func TestDefaultValues(t *testing.T) {
 	require.Equal(t, 90*time.Second, cfg.Solver.Timeout)
 	require.Equal(t, "localhost:6379", cfg.Redis.Address)
 	require.Equal(t, 5*time.Minute, cfg.Cache.TTL)
-	require.Equal(t, int64(5), cfg.RateLimit.MaxRPS)
+	require.Equal(t, int64(30), cfg.RateLimit.MaxRequests)
+	require.Equal(t, time.Minute, cfg.RateLimit.Window)
 }
 
 func TestOverrideDefaults(t *testing.T) {
@@ -87,7 +90,8 @@ func TestOverrideDefaults(t *testing.T) {
 	require.Equal(t, 90*time.Second, cfg.Solver.Timeout)
 	require.Equal(t, "localhost:6379", cfg.Redis.Address)
 	require.Equal(t, 5*time.Minute, cfg.Cache.TTL)
-	require.Equal(t, int64(5), cfg.RateLimit.MaxRPS)
+	require.Equal(t, int64(30), cfg.RateLimit.MaxRequests)
+	require.Equal(t, time.Minute, cfg.RateLimit.Window)
 }
 
 func TestDurationParsing(t *testing.T) {

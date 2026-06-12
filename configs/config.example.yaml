@@ -28,4 +28,5 @@ cache:
   ttl: 5m
 
 rate_limit:
-  max_rps: 5
+  max_requests: 30
+  window: 1m

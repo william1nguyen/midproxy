@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -47,7 +48,11 @@ type CacheConfig struct {
 }
 
 type RateLimitConfig struct {
-	MaxRPS int64 `yaml:"max_rps"`
+	Strategy    string        `yaml:"strategy"`
+	MaxRequests int64         `yaml:"max_requests"`
+	Window      time.Duration `yaml:"window"`
+	RefillRate  int64         `yaml:"refill_rate"`
+	BucketSize  int64         `yaml:"bucket_size"`
 }
 
 func Load(path string) (*Config, error) {
@@ -66,12 +71,15 @@ func Load(path string) (*Config, error) {
 		Solver:    SolverConfig{Timeout: 90 * time.Second},
 		Redis:     RedisConfig{Address: "localhost:6379"},
 		Cache:     CacheConfig{TTL: 5 * time.Minute},
-		RateLimit: RateLimitConfig{MaxRPS: 5},
+		RateLimit: RateLimitConfig{Strategy: "window", MaxRequests: 30, Window: time.Minute, BucketSize: 10, RefillRate: 5},
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
-	return cfg, yaml.Unmarshal(data, cfg)
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	return cfg, nil
 }
