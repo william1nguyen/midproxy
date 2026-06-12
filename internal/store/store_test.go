@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/william1nguyen/midproxy/internal/ratelimit"
 	"github.com/william1nguyen/midproxy/internal/store"
 	"github.com/william1nguyen/midproxy/internal/testutil"
 )
@@ -17,7 +16,7 @@ import (
 
 func TestCacheSetAndGet(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, nil)
+	s := store.New(rdb, 10*time.Second)
 	ctx := context.Background()
 
 	header := http.Header{"Content-Type": []string{"application/json"}}
@@ -49,7 +48,7 @@ func TestCacheSetAndGet(t *testing.T) {
 
 func TestCacheMiss(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, nil)
+	s := store.New(rdb, 10*time.Second)
 	ctx := context.Background()
 
 	_, err := s.GetCachedResponse(ctx, "GET", "http://never-set.example.com")
@@ -60,7 +59,7 @@ func TestCacheMiss(t *testing.T) {
 
 func TestCacheTTLExpired(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 1*time.Second, nil)
+	s := store.New(rdb, 1*time.Second)
 	ctx := context.Background()
 
 	resp := store.EncodeCachedResponse(200, http.Header{}, []byte("body"))
@@ -78,7 +77,7 @@ func TestCacheTTLExpired(t *testing.T) {
 
 func TestCacheOverwrite(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, nil)
+	s := store.New(rdb, 10*time.Second)
 	ctx := context.Background()
 
 	first := store.EncodeCachedResponse(200, http.Header{}, []byte("first"))
@@ -111,7 +110,7 @@ func TestCacheOverwrite(t *testing.T) {
 
 func TestGetSolveResultNoData(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, nil)
+	s := store.New(rdb, 10*time.Second)
 	ctx := context.Background()
 
 	_, err := s.GetSolveResult(ctx, "missing-domain.com")
@@ -122,7 +121,7 @@ func TestGetSolveResultNoData(t *testing.T) {
 
 func TestStoreThenGetSolveResult(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, nil)
+	s := store.New(rdb, 10*time.Second)
 	ctx := context.Background()
 
 	payload := `{"userAgent":"TestAgent","cookies":[{"name":"n","value":"v","domain":"test.com","path":"/"}],"proxyURL":"http://p:1"}`
@@ -147,7 +146,7 @@ func TestStoreThenGetSolveResult(t *testing.T) {
 
 func TestSolveResultRotation(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, nil)
+	s := store.New(rdb, 10*time.Second)
 	ctx := context.Background()
 
 	push := func(ua string) {
@@ -182,7 +181,7 @@ func TestSolveResultRotation(t *testing.T) {
 
 func TestSolveResultTTL(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, nil)
+	s := store.New(rdb, 10*time.Second)
 	ctx := context.Background()
 
 	payload := `{"userAgent":"TTLAgent","cookies":[],"proxyURL":"http://p:1"}`
@@ -201,59 +200,11 @@ func TestSolveResultTTL(t *testing.T) {
 	}
 }
 
-// --- Rate Limit tests ---
-
-func TestAllowRequestUnderLimit(t *testing.T) {
-	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, ratelimit.NewTokenBucket(rdb, 5))
-	ctx := context.Background()
-
-	for i := 1; i <= 3; i++ {
-		if !s.AllowRequest(ctx, "under.example.com") {
-			t.Errorf("call %d: expected true (under limit), got false", i)
-		}
-	}
-}
-
-func TestAllowRequestHitLimit(t *testing.T) {
-	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, ratelimit.NewTokenBucket(rdb, 5))
-	ctx := context.Background()
-
-	for i := 1; i <= 5; i++ {
-		if !s.AllowRequest(ctx, "hit.example.com") {
-			t.Errorf("call %d: expected true (within limit), got false", i)
-		}
-	}
-	if s.AllowRequest(ctx, "hit.example.com") {
-		t.Error("call 6: expected false (over limit), got true")
-	}
-}
-
-func TestAllowRequestResetAfterWindow(t *testing.T) {
-	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, ratelimit.NewTokenBucket(rdb, 5))
-	ctx := context.Background()
-
-	for i := 1; i <= 5; i++ {
-		s.AllowRequest(ctx, "reset.example.com")
-	}
-	if s.AllowRequest(ctx, "reset.example.com") {
-		t.Fatal("expected false after hitting limit, got true")
-	}
-
-	time.Sleep(1100 * time.Millisecond)
-
-	if !s.AllowRequest(ctx, "reset.example.com") {
-		t.Error("expected true after window reset, got false")
-	}
-}
-
 // --- Invalidate test ---
 
 func TestInvalidateSolveResult(t *testing.T) {
 	rdb := testutil.SetupRedis(t)
-	s := store.New(rdb, 10*time.Second, nil)
+	s := store.New(rdb, 10*time.Second)
 	ctx := context.Background()
 
 	payload := `{"userAgent":"InvAgent","cookies":[],"proxyURL":"http://p:1"}`
