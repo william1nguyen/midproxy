@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ type CertStore struct {
 func NewCertStore() (*CertStore, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("generate CA key: %w", err)
 	}
 
 	tmpl := &x509.Certificate{
@@ -37,12 +38,12 @@ func NewCertStore() (*CertStore, error) {
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create CA cert: %w", err)
 	}
 
 	ca, err := x509.ParseCertificate(der)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse CA cert: %w", err)
 	}
 
 	return &CertStore{CA: ca, caKey: key, cache: make(map[string]*tls.Certificate)}, nil
@@ -65,7 +66,7 @@ func (cs *CertStore) Get(host string) (*tls.Certificate, error) {
 
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("generate key for %s: %w", host, err)
 	}
 
 	serial, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
@@ -80,7 +81,7 @@ func (cs *CertStore) Get(host string) (*tls.Certificate, error) {
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, cs.CA, &key.PublicKey, cs.caKey)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create cert for %s: %w", host, err)
 	}
 
 	cert := &tls.Certificate{

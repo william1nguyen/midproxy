@@ -46,14 +46,26 @@ func main() {
 		slv = solver.New(rdb, cfg.Solver.Timeout)
 	}
 
+	limiter, err := ratelimit.NewFromConfig(rdb, ratelimit.Config{
+		Strategy:    cfg.RateLimit.Strategy,
+		MaxRequests: cfg.RateLimit.MaxRequests,
+		Window:      cfg.RateLimit.Window,
+		BucketSize:  cfg.RateLimit.BucketSize,
+		RefillRate:  cfg.RateLimit.RefillRate,
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create rate limiter")
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
 	srv := proxy.NewServer(&proxy.ServerConfig{
 		Addr:           fmt.Sprintf(":%d", cfg.Port),
 		Manager:        proxy.NewManager(cfg.Proxies, cfg.Circuit.FailureThreshold, cfg.Circuit.ResetTimeout),
 		FetchClient:    fetch.NewClient(cfg.Fetch.Timeout),
-		Store:          store.New(rdb, cfg.Cache.TTL, ratelimit.NewTokenBucket(rdb, cfg.RateLimit.MaxRPS)),
+		Store:          store.New(rdb, cfg.Cache.TTL),
 		Solver:         slv,
+		Limiter:        limiter,
 		CacheEnabled:   cfg.Cache.Enabled,
 		MaxRetries:     cfg.Fetch.MaxRetries,
 		RetryBaseDelay: cfg.Fetch.RetryBaseDelay,

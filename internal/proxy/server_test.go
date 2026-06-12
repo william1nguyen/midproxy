@@ -36,7 +36,7 @@ func setup(t *testing.T, handler http.HandlerFunc) *testEnv {
 	t.Cleanup(upstream.Close)
 
 	rdb := testutil.SetupRedis(t)
-	st := store.New(rdb, 30*time.Second, ratelimit.NewTokenBucket(rdb, 5))
+	st := store.New(rdb, 30*time.Second)
 	slv := solver.New(rdb, 30*time.Second)
 
 	srv := proxy.NewServer(&proxy.ServerConfig{
@@ -44,6 +44,7 @@ func setup(t *testing.T, handler http.HandlerFunc) *testEnv {
 		FetchClient:  fetch.NewClient(10 * time.Second),
 		Store:        st,
 		Solver:       slv,
+		Limiter:      ratelimit.NewFixedWindow(rdb, 5, time.Second),
 		CacheEnabled: true,
 	})
 

@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/william1nguyen/midproxy/internal/errs"
 	"github.com/william1nguyen/midproxy/internal/fetch"
+	"github.com/william1nguyen/midproxy/internal/ratelimit"
 	"github.com/william1nguyen/midproxy/internal/solver"
 	"github.com/william1nguyen/midproxy/internal/store"
 )
@@ -22,6 +24,7 @@ type Server struct {
 	fetch          *fetch.Client
 	store          *store.Store
 	solver         *solver.Solver
+	limiter        ratelimit.Limiter
 	cache          bool
 	certs          *CertStore
 	maxRetries     int
@@ -35,6 +38,7 @@ type ServerConfig struct {
 	FetchClient    *fetch.Client
 	Store          *store.Store
 	Solver         *solver.Solver
+	Limiter        ratelimit.Limiter
 	CacheEnabled   bool
 	MaxRetries     int
 	RetryBaseDelay time.Duration
@@ -64,6 +68,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		fetch:          cfg.FetchClient,
 		store:          cfg.Store,
 		solver:         cfg.Solver,
+		limiter:        cfg.Limiter,
 		cache:          cfg.CacheEnabled,
 		certs:          certs,
 		maxRetries:     maxRetries,
@@ -87,14 +92,28 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	return srv.ListenAndServe()
 }
 
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/healthz" {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 		return
 	}
+
 	if r.Method == http.MethodConnect {
 		s.handleConnect(w, r)
+		return
+	}
+
+	if s.limiter != nil && !s.limiter.Allow(r.Context(), clientIP(r)) {
+		errs.WriteJSON(w, errs.RateLimited(60))
 		return
 	}
 	s.handleHTTP(w, r)
@@ -168,11 +187,6 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.store != nil && !s.store.AllowRequest(ctx, domain) {
-		http.Error(w, "rate limited", http.StatusTooManyRequests)
-		return
-	}
-
 	for attempt := range s.maxRetries {
 		solve, proxyURL := s.resolveProxy(ctx, domain)
 		logForward(r.URL.String(), proxyURL, solve)
@@ -185,7 +199,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 				time.Sleep(s.backoff(attempt))
 				continue
 			}
-			http.Error(w, "bad gateway", http.StatusBadGateway)
+			errs.WriteJSON(w, errs.BadGateway("upstream request failed after retries"))
 			return
 		}
 		s.manager.RecordSuccess(proxyURL)
@@ -199,8 +213,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Info().Str("url", r.URL.String()).Msg("CF challenge detected, triggering solver")
 			retryAfter := s.triggerSolve(ctx, r.URL.String(), domain, solve)
-			w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
-			http.Error(w, "solving challenge", http.StatusServiceUnavailable)
+			errs.WriteJSON(w, errs.Solving(retryAfter))
 			return
 		}
 
@@ -225,7 +238,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
-		http.Error(w, "hijacking not supported", http.StatusInternalServerError)
+		errs.WriteJSON(w, errs.Internal("hijacking not supported"))
 		return
 	}
 	clientConn, _, err := hijacker.Hijack()
@@ -234,13 +247,14 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientConn.Close()
 
-	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
-
 	cert, err := s.certs.Get(host)
 	if err != nil {
 		log.Error().Err(err).Str("host", host).Msg("cert generation failed")
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
 	}
+
+	clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 	tlsConn := tls.Server(clientConn, &tls.Config{Certificates: []tls.Certificate{*cert}})
 	if err := tlsConn.Handshake(); err != nil {
 		log.Error().Err(err).Str("host", host).Msg("TLS handshake failed")
@@ -263,29 +277,29 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 
+		if s.limiter != nil && !s.limiter.Allow(ctx, clientIP(r)) {
+			tlsConn.Write([]byte(errs.WriteRaw(nil, errs.RateLimited(60))))
+			cancel()
+			break
+		}
+
 		if body, cached, ok := s.cacheGet(ctx, req.Method, req.URL.String()); ok {
 			writeRawResponse(tlsConn, cached.StatusCode, cached.Header, body)
 			cancel()
 			continue
 		}
 
-		if s.store != nil && !s.store.AllowRequest(ctx, host) {
-			writeRawResponse(tlsConn, 429, http.Header{}, []byte("rate limited"))
-			cancel()
-			break
-		}
-
 		result := s.forwardWithRetry(ctx, req, host)
 		req.Body.Close()
 
 		if result.err != nil {
-			tlsConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+			tlsConn.Write([]byte(errs.WriteRaw(nil, errs.BadGateway("upstream request failed"))))
 			cancel()
 			break
 		}
 
 		if result.solving {
-			fmt.Fprintf(tlsConn, "HTTP/1.1 503 Service Unavailable\r\nRetry-After: %d\r\n\r\nsolving challenge\n", result.retryAfter)
+			tlsConn.Write([]byte(errs.WriteRaw(nil, errs.Solving(result.retryAfter))))
 			cancel()
 			break
 		}
@@ -338,7 +352,7 @@ func (s *Server) forwardWithRetry(ctx context.Context, req *http.Request, domain
 
 		return forwardResult{resp: resp}
 	}
-	return forwardResult{err: fmt.Errorf("max retries exceeded")}
+	return forwardResult{err: fmt.Errorf("max retries exceeded for %s", domain)}
 }
 
 func writeRawResponse(w io.Writer, statusCode int, header http.Header, body []byte) {
