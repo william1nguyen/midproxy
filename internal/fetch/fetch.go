@@ -71,7 +71,16 @@ func (c *Client) Forward(ctx context.Context, r *http.Request, proxyURL string, 
 		return nil, fmt.Errorf("create tls client: %w", err)
 	}
 
-	req, err := fhttp.NewRequestWithContext(ctx, r.Method, r.URL.String(), r.Body)
+	reqBody := r.Body
+	if r.GetBody != nil {
+		reqBody, err = r.GetBody()
+		if err != nil {
+			return nil, fmt.Errorf("replay request body: %w", err)
+		}
+		defer reqBody.Close()
+	}
+
+	req, err := fhttp.NewRequestWithContext(ctx, r.Method, r.URL.String(), reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}

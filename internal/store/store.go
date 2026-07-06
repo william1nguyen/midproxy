@@ -56,11 +56,18 @@ func (s *Store) GetCachedResponse(ctx context.Context, method, url string) (*Cac
 }
 
 func (s *Store) SetCachedResponse(ctx context.Context, method, url string, resp *CachedResponse) error {
+	return s.SetCachedResponseWithTTL(ctx, method, url, resp, s.cacheTTL)
+}
+
+func (s *Store) SetCachedResponseWithTTL(ctx context.Context, method, url string, resp *CachedResponse, ttl time.Duration) error {
+	if ttl <= 0 || ttl > s.cacheTTL {
+		ttl = s.cacheTTL
+	}
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return err
 	}
-	return s.rdb.Set(ctx, cacheKey(method, url), data, s.cacheTTL).Err()
+	return s.rdb.Set(ctx, cacheKey(method, url), data, ttl).Err()
 }
 
 func EncodeCachedResponse(statusCode int, header http.Header, body []byte) *CachedResponse {

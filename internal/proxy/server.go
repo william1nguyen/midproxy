@@ -2,12 +2,15 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -17,6 +20,8 @@ import (
 	"github.com/william1nguyen/midproxy/internal/solver"
 	"github.com/william1nguyen/midproxy/internal/store"
 )
+
+const maxReplayBodyBytes = 1 << 20
 
 type Server struct {
 	addr           string
@@ -139,11 +144,91 @@ func (s *Server) resolveProxy(ctx context.Context, domain string) (*store.SolveR
 	return solve, s.manager.Pick()
 }
 
-func (s *Server) cacheGet(ctx context.Context, method, url string) ([]byte, *store.CachedResponse, bool) {
-	if !s.cache || s.store == nil || method != http.MethodGet {
+func cacheControlValues(h http.Header) []string {
+	values := h.Values("Cache-Control")
+	if len(values) == 0 {
+		return nil
+	}
+	var directives []string
+	for _, value := range values {
+		for _, directive := range strings.Split(value, ",") {
+			if directive = strings.TrimSpace(strings.ToLower(directive)); directive != "" {
+				directives = append(directives, directive)
+			}
+		}
+	}
+	return directives
+}
+
+func hasCacheDirective(h http.Header, names ...string) bool {
+	for _, directive := range cacheControlValues(h) {
+		key := directive
+		if i := strings.IndexByte(key, '='); i >= 0 {
+			key = key[:i]
+		}
+		for _, name := range names {
+			if key == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasZeroMaxAge(h http.Header) bool {
+	for _, directive := range cacheControlValues(h) {
+		key, value, ok := strings.Cut(directive, "=")
+		if !ok || (key != "max-age" && key != "s-maxage") {
+			continue
+		}
+		seconds, err := strconv.Atoi(strings.Trim(value, `"`))
+		if err == nil && seconds <= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func cacheMaxAge(h http.Header) (time.Duration, bool) {
+	var maxAge time.Duration
+	for _, directive := range cacheControlValues(h) {
+		key, value, ok := strings.Cut(directive, "=")
+		if !ok || (key != "max-age" && key != "s-maxage") {
+			continue
+		}
+		seconds, err := strconv.Atoi(strings.Trim(value, `"`))
+		if err == nil && seconds > 0 {
+			if key == "s-maxage" {
+				return time.Duration(seconds) * time.Second, true
+			}
+			maxAge = time.Duration(seconds) * time.Second
+		}
+	}
+	return maxAge, maxAge > 0
+}
+
+func requestBypassesCache(r *http.Request) bool {
+	return r.Method != http.MethodGet ||
+		r.Header.Get("Authorization") != "" ||
+		r.Header.Get("Cookie") != "" ||
+		strings.EqualFold(r.Header.Get("Pragma"), "no-cache") ||
+		hasCacheDirective(r.Header, "no-cache", "no-store") ||
+		hasZeroMaxAge(r.Header)
+}
+
+func responseCacheable(resp *fetch.Response) bool {
+	return resp.StatusCode == http.StatusOK &&
+		resp.Header.Get("Set-Cookie") == "" &&
+		resp.Header.Get("Vary") == "" &&
+		!hasCacheDirective(resp.Header, "private", "no-cache", "no-store") &&
+		!hasZeroMaxAge(resp.Header)
+}
+
+func (s *Server) cacheGet(ctx context.Context, r *http.Request) ([]byte, *store.CachedResponse, bool) {
+	if !s.cache || s.store == nil || requestBypassesCache(r) {
 		return nil, nil, false
 	}
-	cached, err := s.store.GetCachedResponse(ctx, method, url)
+	cached, err := s.store.GetCachedResponse(ctx, r.Method, r.URL.String())
 	if err != nil {
 		return nil, nil, false
 	}
@@ -151,13 +236,18 @@ func (s *Server) cacheGet(ctx context.Context, method, url string) ([]byte, *sto
 	if err != nil {
 		return nil, nil, false
 	}
-	log.Info().Str("url", url).Int("status", cached.StatusCode).Int("body", len(body)).Msg("cache hit")
+	log.Info().Str("url", r.URL.String()).Int("status", cached.StatusCode).Int("body", len(body)).Msg("cache hit")
 	return body, cached, true
 }
 
-func (s *Server) cacheSet(ctx context.Context, method, url string, resp *fetch.Response) {
-	if s.cache && s.store != nil && method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		s.store.SetCachedResponse(ctx, method, url, store.EncodeCachedResponse(resp.StatusCode, resp.Header, resp.Body))
+func (s *Server) cacheSet(ctx context.Context, r *http.Request, resp *fetch.Response) {
+	if s.cache && s.store != nil && !requestBypassesCache(r) && responseCacheable(resp) {
+		cached := store.EncodeCachedResponse(resp.StatusCode, resp.Header, resp.Body)
+		if ttl, ok := cacheMaxAge(resp.Header); ok {
+			s.store.SetCachedResponseWithTTL(ctx, r.Method, r.URL.String(), cached, ttl)
+			return
+		}
+		s.store.SetCachedResponse(ctx, r.Method, r.URL.String(), cached)
 	}
 }
 
@@ -175,7 +265,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	domain := r.URL.Hostname()
 
-	if body, cached, ok := s.cacheGet(ctx, r.Method, r.URL.String()); ok {
+	if body, cached, ok := s.cacheGet(ctx, r); ok {
 		for k, vv := range cached.Header {
 			for _, v := range vv {
 				w.Header().Add(k, v)
@@ -187,7 +277,17 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for attempt := range s.maxRetries {
+	replayable, err := prepareBodyReplay(r)
+	if err != nil {
+		errs.WriteJSON(w, errs.BadGateway(err.Error()))
+		return
+	}
+	attempts := s.maxRetries
+	if !replayable {
+		attempts = 1
+	}
+
+	for attempt := range attempts {
 		solve, proxyURL := s.resolveProxy(ctx, domain)
 		logForward(r.URL.String(), proxyURL, solve)
 
@@ -195,7 +295,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Error().Err(err).Str("url", r.URL.String()).Int("attempt", attempt+1).Msg("fetch failed")
 			s.manager.RecordFailure(proxyURL)
-			if attempt < s.maxRetries-1 {
+			if attempt < attempts-1 {
 				time.Sleep(s.backoff(attempt))
 				continue
 			}
@@ -206,7 +306,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Info().Str("url", r.URL.String()).Int("status", resp.StatusCode).Int("body", len(resp.Body)).Msg("fetch result")
 
 		if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
-			if solve != nil && attempt < s.maxRetries-1 {
+			if solve != nil && attempt < attempts-1 {
 				log.Info().Str("url", r.URL.String()).Int("attempt", attempt+1).Msg("CF challenge with cookies, retrying")
 				time.Sleep(s.backoff(attempt))
 				continue
@@ -217,7 +317,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		s.cacheSet(ctx, r.Method, r.URL.String(), resp)
+		s.cacheSet(ctx, r, resp)
 
 		for k, vv := range resp.Header {
 			for _, v := range vv {
@@ -283,7 +383,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		if body, cached, ok := s.cacheGet(ctx, req.Method, req.URL.String()); ok {
+		if body, cached, ok := s.cacheGet(ctx, req); ok {
 			writeRawResponse(tlsConn, cached.StatusCode, cached.Header, body)
 			cancel()
 			continue
@@ -307,7 +407,7 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		result.resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(result.resp.Body)))
 		result.resp.Header.Del("Transfer-Encoding")
 
-		s.cacheSet(ctx, req.Method, req.URL.String(), result.resp)
+		s.cacheSet(ctx, req, result.resp)
 
 		writeRawResponse(tlsConn, result.resp.StatusCode, result.resp.Header, result.resp.Body)
 		cancel()
@@ -322,7 +422,16 @@ type forwardResult struct {
 }
 
 func (s *Server) forwardWithRetry(ctx context.Context, req *http.Request, domain string) forwardResult {
-	for attempt := range s.maxRetries {
+	replayable, err := prepareBodyReplay(req)
+	if err != nil {
+		return forwardResult{err: err}
+	}
+	attempts := s.maxRetries
+	if !replayable {
+		attempts = 1
+	}
+
+	for attempt := range attempts {
 		solve, proxyURL := s.resolveProxy(ctx, domain)
 		logForward(req.URL.String(), proxyURL, solve)
 
@@ -330,7 +439,7 @@ func (s *Server) forwardWithRetry(ctx context.Context, req *http.Request, domain
 		if err != nil {
 			log.Error().Err(err).Str("url", req.URL.String()).Int("attempt", attempt+1).Msg("fetch failed")
 			s.manager.RecordFailure(proxyURL)
-			if attempt < s.maxRetries-1 {
+			if attempt < attempts-1 {
 				time.Sleep(s.backoff(attempt))
 				continue
 			}
@@ -340,7 +449,7 @@ func (s *Server) forwardWithRetry(ctx context.Context, req *http.Request, domain
 		log.Info().Str("url", req.URL.String()).Int("status", resp.StatusCode).Int("body", len(resp.Body)).Msg("fetch result")
 
 		if s.solver != nil && fetch.IsCloudflareChallenge(resp.StatusCode, resp.Body) {
-			if solve != nil && attempt < s.maxRetries-1 {
+			if solve != nil && attempt < attempts-1 {
 				log.Info().Str("url", req.URL.String()).Int("attempt", attempt+1).Msg("CF challenge with cookies, retrying")
 				time.Sleep(s.backoff(attempt))
 				continue
@@ -353,6 +462,52 @@ func (s *Server) forwardWithRetry(ctx context.Context, req *http.Request, domain
 		return forwardResult{resp: resp}
 	}
 	return forwardResult{err: fmt.Errorf("max retries exceeded for %s", domain)}
+}
+
+func prepareBodyReplay(req *http.Request) (bool, error) {
+	if req.Body == nil || req.Body == http.NoBody {
+		req.Body = http.NoBody
+		req.GetBody = func() (io.ReadCloser, error) {
+			return http.NoBody, nil
+		}
+		return true, nil
+	}
+
+	if req.GetBody != nil {
+		body, err := req.GetBody()
+		if err != nil {
+			return false, fmt.Errorf("prepare request body: %w", err)
+		}
+		req.Body = body
+		return true, nil
+	}
+
+	original := req.Body
+	limited := io.LimitReader(original, maxReplayBodyBytes+1)
+	body, err := io.ReadAll(limited)
+	if err != nil {
+		return false, fmt.Errorf("read request body: %w", err)
+	}
+	if len(body) > maxReplayBodyBytes {
+		req.Body = readCloser{
+			Reader: io.MultiReader(bytes.NewReader(body), original),
+			Closer: original,
+		}
+		return false, nil
+	}
+	original.Close()
+
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.ContentLength = int64(len(body))
+	return true, nil
+}
+
+type readCloser struct {
+	io.Reader
+	io.Closer
 }
 
 func writeRawResponse(w io.Writer, statusCode int, header http.Header, body []byte) {
