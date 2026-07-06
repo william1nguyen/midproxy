@@ -21,8 +21,8 @@ HTTP/HTTPS middleman proxy that automatically detects and solves Cloudflare chal
 - **MITM interception** — dynamically generates TLS certificates per host to inspect HTTPS traffic
 - **Upstream proxy pool** — round-robin selection with circuit breaker (CLOSED → OPEN → HALF_OPEN) per proxy
 - **Retry with backoff** — failed requests auto-retry with exponential backoff and alternate proxies; CF challenges with stale cookies retry before re-solving
-- **Rate limiting** — per-domain sliding window using Redis counters
-- **Response caching** — GET 200 responses cached in Redis with configurable TTL
+- **Rate limiting** — per-client-IP fixed window using Redis counters
+- **Response caching** — cacheable GET 200 responses cached in Redis with configurable TTL
 
 ### Solver (TypeScript)
 
